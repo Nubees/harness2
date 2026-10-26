@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Omni-3D Studio: SpaceMan Alien Astronaut</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <style>
+    body { margin: 0; overflow: hidden; background: radial-gradient(circle at 50% 40%, #1e293b 0%, #0f172a 60%, #020617 100%); color: #f8fafc; font-family: system-ui, sans-serif; }
+    canvas { display: block; width: 100vw; height: 100vh; position: fixed; inset: 0; z-index: 0; }
+  </style>
+</head>
+<body class="relative min-h-screen">
+  <canvas id="c"></canvas>
+
+  <!-- Top Bar -->
+  <div class="fixed top-5 left-6 right-6 flex items-center justify-between z-10 pointer-events-none">
+    <div>
+      <div class="flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+        <h1 class="text-lg font-bold tracking-wider text-cyan-300">SPACEMAN · ALIEN ASTRONAUT</h1>
+      </div>
+      <p class="text-xs text-slate-400 mt-0.5">Procedural 3D Asset Synthesized via LL3M & Blender 5.2</p>
+    </div>
+    <div class="pointer-events-auto flex items-center gap-2">
+      <span class="text-xs px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700 text-slate-300 font-mono">
+        Formats: GLB · OBJ · STL · FBX
+      </span>
+    </div>
+  </div>
+
+  <!-- Bottom Format Download Bar -->
+  <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-10 bg-slate-900/90 border border-slate-700/80 backdrop-blur-md rounded-2xl p-3.5 shadow-2xl flex flex-wrap items-center gap-3">
+    <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider pl-2 pr-1 hidden sm:block">
+      Export Deliverables:
+    </div>
+    <a href="exports/spaceman.glb" download="spaceman.glb" class="px-3.5 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 shadow-lg shadow-cyan-500/10">
+      <span>📦</span> Download .GLB
+    </a>
+    <a href="exports/spaceman.obj" download="spaceman.obj" class="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 shadow-lg shadow-amber-500/10">
+      <span>📐</span> Download .OBJ
+    </a>
+    <a href="exports/spaceman.stl" download="spaceman.stl" class="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 shadow-lg shadow-emerald-500/10">
+      <span>🖨️</span> Download .STL
+    </a>
+    <a href="exports/spaceman.fbx" download="spaceman.fbx" class="px-3.5 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/40 text-purple-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 shadow-lg shadow-purple-500/10">
+      <span>🎮</span> Download .FBX
+    </a>
+  </div>
+
+  <!-- Orbit Hint -->
+  <div class="fixed bottom-24 left-1/2 -translate-x-1/2 text-[11px] uppercase tracking-widest text-slate-500 pointer-events-none font-mono">
+    Drag to Orbit · Scroll to Zoom
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+    const canvas = document.getElementById('c');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 50);
+    camera.position.set(0, 1.2, 4.2);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.target.set(0, 0.8, 0);
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 1.2;
+
+    // Studio Lighting
+    const amb = new THREE.AmbientLight(0xffffff, 0.8);
+    scene.add(amb);
+    const key = new THREE.DirectionalLight(0xfff5ea, 1.8);
+    key.position.set(3, 5, 4);
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0x7dd3fc, 1.2);
+    fill.position.set(-4, 2, -2);
+    scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xfb923c, 1.0);
+    rim.position.set(0, 4, -4);
+    scene.add(rim);
+
+    // Floor contact shadow grid
+    const grid = new THREE.GridHelper(6, 20, 0x38bdf8, 0x1e293b);
+    grid.position.y = -0.01;
+    scene.add(grid);
+
+    // Load Model
+    let modelRoot = null;
+    const loader = new GLTFLoader();
+    loader.load('exports/spaceman.glb', (gltf) => {
+      modelRoot = gltf.scene;
+      
+      // Compute bounding box and center
+      const box = new THREE.Box3().setFromObject(modelRoot);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = 2.0 / (maxDim || 1);
+      modelRoot.scale.setScalar(scale);
+      modelRoot.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+      
+      scene.add(modelRoot);
+      controls.target.set(0, 1.0, 0);
+    }, undefined, (err) => {
+      console.warn('Could not load exports/spaceman.glb directly, waiting for build:', err);
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

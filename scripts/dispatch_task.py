@@ -128,32 +128,39 @@ def call_ollama_chat(
     prompt: str,
     system: str = "",
     model: str = "kimi-k2.7-code:cloud",
-    base_url: str = "http://localhost:11434/v1",
+    base_url: str = "http://localhost:11434",
     retries: int = 3,
-    timeout: int = 180,
+    timeout: int = 300,
     image_path: Path | str | None = None,
 ) -> str:
-    url = base_url.rstrip("/") + "/chat/completions"
+    # Use Ollama native /api/chat endpoint with streaming for rock-solid thinking & multi-modal support
+    clean_base = base_url.rstrip("/")
+    if clean_base.endswith("/v1"):
+        clean_base = clean_base[:-3]
+    url = f"{clean_base}/api/chat"
+
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
 
     if image_path and Path(image_path).is_file():
         img_p = Path(image_path)
-        b64, mime = encode_image_b64(img_p)
-        user_content = [
-            {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
-        ]
-        messages.append({"role": "user", "content": user_content})
+        b64, _ = encode_image_b64(img_p, max_dim=384)
+        messages.append({
+            "role": "user",
+            "content": prompt,
+            "images": [b64],
+        })
     else:
         messages.append({"role": "user", "content": prompt})
 
     payload_dict = {
         "model": model,
         "messages": messages,
-        "temperature": 0.2,
         "stream": True,
+        "options": {
+            "temperature": 0.2,
+        },
     }
     payload = json.dumps(payload_dict).encode("utf-8")
     req = urllib.request.Request(
@@ -164,41 +171,37 @@ def call_ollama_chat(
 
     for attempt in range(1, retries + 1):
         try:
+            accumulated_content = []
+            accumulated_thinking = []
+            last_report = time.time()
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                content_type = resp.headers.get("Content-Type", "")
-                if "event-stream" in content_type or True:  # streaming mode
-                    accumulated = []
-                    for line in resp:
-                        s = line.decode("utf-8", errors="replace").strip()
-                        if not s or s == "data: [DONE]":
-                            continue
-                        if s.startswith("data: "):
-                            raw_json = s[6:]
-                            try:
-                                chunk = json.loads(raw_json)
-                                choices = chunk.get("choices") or []
-                                if choices:
-                                    delta = choices[0].get("delta") or {}
-                                    c = delta.get("content") or ""
-                                    if c:
-                                        accumulated.append(c)
-                            except json.JSONDecodeError:
-                                pass
-                        elif s.startswith("{"):
-                            try:
-                                body = json.loads(s)
-                                choices = body.get("choices") or []
-                                if choices:
-                                    return (choices[0].get("message") or {}).get("content") or ""
-                            except json.JSONDecodeError:
-                                pass
-                    return "".join(accumulated)
-                else:
-                    body = json.loads(resp.read().decode("utf-8"))
-                    choices = body.get("choices") or []
-                    if choices:
-                        return (choices[0].get("message") or {}).get("content") or ""
-                    return ""
+                for line in resp:
+                    s = line.decode("utf-8", errors="replace").strip()
+                    if not s:
+                        continue
+                    try:
+                        chunk = json.loads(s)
+                        msg = chunk.get("message") or {}
+                        c = msg.get("content") or ""
+                        th = msg.get("thinking") or ""
+                        if c:
+                            accumulated_content.append(c)
+                        if th:
+                            accumulated_thinking.append(th)
+                        now = time.time()
+                        if now - last_report > 15:
+                            last_report = now
+                            t_len = sum(len(x) for x in accumulated_thinking)
+                            c_len = sum(len(x) for x in accumulated_content)
+                            print(f"    [streaming] thinking: {t_len} chars, content: {c_len} chars...", flush=True)
+                        if chunk.get("done"):
+                            break
+                    except json.JSONDecodeError:
+                        pass
+            content = "".join(accumulated_content)
+            if not content.strip() and accumulated_thinking:
+                content = "".join(accumulated_thinking)
+            return content
         except urllib.error.HTTPError as e:
             err_msg = e.read().decode("utf-8", errors="replace")
             print(f"  [ERROR] Ollama HTTP {e.code} (attempt {attempt}/{retries}): {err_msg[:200]}")
@@ -320,7 +323,6 @@ Output the complete, self-contained, production-ready solution."""
             system="You are an elite code synthesizer and 3D graphics specialist.",
             model=model,
             base_url=base_url,
-            image_path=image_path,
         )
         final_path = task_dir / "deliverable.md"
         final_path.write_text(final_solution, encoding="utf-8")
