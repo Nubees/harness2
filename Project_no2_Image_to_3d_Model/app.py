@@ -265,6 +265,7 @@ class StudioHTTPHandler(http.server.BaseHTTPRequestHandler):
             model = body.get("model", "glm-5.3-flash:cloud")
             prompt = body.get("prompt", "")
             formats = body.get("formats", ["glb", "obj", "stl", "fbx"])
+            quality_preset = body.get("quality_preset", "sota_sculpt")
 
             # Resolve image file
             img_path = PROJECT_DIR / image_ref
@@ -301,6 +302,7 @@ class StudioHTTPHandler(http.server.BaseHTTPRequestHandler):
                         model=model,
                         guidance=prompt,
                         formats=formats,
+                        quality_preset=quality_preset,
                         progress_cb=on_progress,
                     )
                     JOBS[job_id]["status"] = "COMPLETE"

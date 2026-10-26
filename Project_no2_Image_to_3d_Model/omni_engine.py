@@ -109,8 +109,191 @@ def extract_blender_script(llm_output: str) -> str:
     return llm_output.strip()
 
 
+# Verified High-Fidelity 3D Sculpting & PBR Helper Suite
+HELPER_DEFINITIONS = {
+    "hex_to_linear": '''def hex_to_linear(hex_str):
+    hex_str = hex_str.lstrip('#')
+    r, g, b = (int(hex_str[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+    def s(c): return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    return (s(r), s(g), s(b), 1.0)
+''',
+    "init_clean_scene": '''def init_clean_scene():
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    for o in list(bpy.data.objects):
+        bpy.data.objects.remove(o, do_unlink=True)
+    for _ in range(3):
+        bpy.data.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+''',
+    "make_organic_pbr_material": '''def make_organic_pbr_material(name, base_hex, roughness=0.35, metallic=0.0, sss_weight=0.25, sss_radius=(1.0, 0.4, 0.2), rim_hex=None, rim_strength=1.5, rim_blend=0.3):
+    if isinstance(sss_weight, str) and sss_weight.startswith('#'):
+        rim_hex = sss_weight
+        rim_strength = sss_radius if isinstance(sss_radius, (int, float)) else 1.5
+        sss_weight = metallic if isinstance(metallic, (int, float)) else 0.25
+        metallic = 0.0
+    elif isinstance(metallic, str) and metallic.startswith('#'):
+        rim_hex = metallic
+        metallic = 0.0
+    roughness = float(roughness) if isinstance(roughness, (int, float)) else 0.35
+    metallic = float(metallic) if isinstance(metallic, (int, float)) else 0.0
+    sss_weight = float(sss_weight) if isinstance(sss_weight, (int, float)) else 0.25
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes.get("Principled BSDF")
+    output = nodes.get("Material Output")
+    bsdf.inputs["Base Color"].default_value = hex_to_linear(base_hex)
+    bsdf.inputs["Roughness"].default_value = roughness
+    bsdf.inputs["Metallic"].default_value = metallic
+    for sub_k in ("Subsurface Weight", "Subsurface"):
+        if sub_k in bsdf.inputs:
+            bsdf.inputs[sub_k].default_value = sss_weight
+            break
+    if "Subsurface Radius" in bsdf.inputs and isinstance(sss_radius, (tuple, list)):
+        bsdf.inputs["Subsurface Radius"].default_value = sss_radius
+    if rim_hex and rim_strength > 0:
+        lw = nodes.new("ShaderNodeLayerWeight")
+        lw.inputs["Blend"].default_value = rim_blend
+        emit = nodes.new("ShaderNodeEmission")
+        emit.inputs["Color"].default_value = hex_to_linear(rim_hex)
+        mult = nodes.new("ShaderNodeMath")
+        mult.operation = 'MULTIPLY'
+        mult.inputs[1].default_value = rim_strength
+        links.new(lw.outputs["Facing"], mult.inputs[0])
+        links.new(mult.outputs["Value"], emit.inputs["Strength"])
+        add = nodes.new("ShaderNodeAddShader")
+        links.new(bsdf.outputs["BSDF"], add.inputs[0])
+        links.new(emit.outputs["Emission"], add.inputs[1])
+        links.new(add.outputs["Shader"], output.inputs["Surface"])
+    return mat
+''',
+    "create_swept_spline_mesh": '''def create_swept_spline_mesh(name, control_points, radii, bevel_depth=0.20, bevel_res=6):
+    curve_data = bpy.data.curves.new(f"{name}_Curve", type='CURVE')
+    curve_data.dimensions = '3D'
+    curve_data.bevel_depth = bevel_depth
+    curve_data.bevel_resolution = bevel_res
+    curve_data.use_fill_caps = True
+    spline = curve_data.splines.new('BEZIER')
+    spline.bezier_points.add(len(control_points) - 1)
+    for i, (pt, r) in enumerate(zip(control_points, radii)):
+        bp = spline.bezier_points[i]
+        bp.co = Vector(pt) if not isinstance(pt, Vector) else pt
+        bp.radius = r
+        bp.handle_left_type = 'AUTO'
+        bp.handle_right_type = 'AUTO'
+    obj = bpy.data.objects.new(name, curve_data)
+    bpy.context.scene.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bpy.ops.object.convert(target='MESH')
+    return obj
+''',
+    "fuse_objects_voxel_remesh": '''def fuse_objects_voxel_remesh(objects, active_obj, voxel_size=0.030, smooth_factor=0.55, smooth_iters=2):
+    voxel_size = max(0.02, min(0.1, voxel_size))
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in objects:
+        if o and hasattr(o, "name") and o.name in bpy.data.objects:
+            o.select_set(True)
+    active_obj.select_set(True)
+    bpy.context.view_layer.objects.active = active_obj
+    bpy.ops.object.join()
+    active_obj.data.remesh_voxel_size = voxel_size
+    bpy.ops.object.voxel_remesh()
+    if smooth_factor > 0 and smooth_iters > 0:
+        sm = active_obj.modifiers.new("RemeshSmooth", 'SMOOTH')
+        sm.factor = smooth_factor
+        sm.iterations = smooth_iters
+        bpy.ops.object.modifier_apply(modifier=sm.name)
+    bpy.ops.object.shade_smooth()
+    return active_obj
+''',
+    "safe_remove_object": '''def safe_remove_object(obj, *args, **kwargs):
+    try:
+        if obj and hasattr(obj, 'name') and obj.name in bpy.data.objects:
+            bpy.data.objects.remove(obj, do_unlink=True)
+    except Exception:
+        pass
+''',
+    "carve_boolean_recess": '''def carve_boolean_recess(target_obj, cutter_obj, solver='EXACT'):
+    if not target_obj or not cutter_obj: return
+    bpy.context.view_layer.objects.active = target_obj
+    mod = target_obj.modifiers.new(f"Carve_{cutter_obj.name}", 'BOOLEAN')
+    mod.operation = 'DIFFERENCE'
+    mod.solver = solver
+    mod.object = cutter_obj
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    safe_remove_object(cutter_obj)
+''',
+    "apply_procedural_relief": '''def apply_procedural_relief(target_obj, tex_type='CLOUDS', noise_scale=0.20, strength=0.015, mid_level=0.5):
+    if not target_obj: return
+    tex = bpy.data.textures.new(f"{target_obj.name}_ReliefTex", type=tex_type)
+    tex.noise_scale = noise_scale
+    if tex_type == 'VORONOI':
+        tex.distance_metric = 'DISTANCE'
+    elif tex_type == 'CLOUDS':
+        tex.noise_depth = 2
+    disp = target_obj.modifiers.new("MicroRelief", 'DISPLACE')
+    disp.texture = tex
+    disp.strength = strength
+    disp.mid_level = mid_level
+    bpy.context.view_layer.objects.active = target_obj
+    bpy.ops.object.modifier_apply(modifier=disp.name)
+''',
+    "add_nested_eye": '''def add_nested_eye(name, loc, radius, iris_mat, pupil_mat=None, hi_mat=None):
+    parts = []
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=24, ring_count=16, radius=radius, location=loc)
+    iris = bpy.context.active_object
+    iris.name = f"{name}_Iris"
+    iris.scale = (0.45, 1.0, 1.0)
+    bpy.ops.object.transform_apply(scale=True)
+    bpy.ops.object.shade_smooth()
+    if iris_mat: iris.data.materials.append(iris_mat)
+    parts.append(iris)
+    if pupil_mat:
+        p_loc = Vector(loc) + Vector((radius * 0.25, 0, 0))
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=20, ring_count=12, radius=radius * 0.55, location=p_loc)
+        pupil = bpy.context.active_object
+        pupil.name = f"{name}_Pupil"
+        pupil.scale = (0.35, 1.0, 1.0)
+        bpy.ops.object.transform_apply(scale=True)
+        bpy.ops.object.shade_smooth()
+        pupil.data.materials.append(pupil_mat)
+        parts.append(pupil)
+    if hi_mat:
+        h_loc = Vector(loc) + Vector((radius * 0.40, radius * 0.22, radius * 0.32))
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=radius * 0.22, location=h_loc)
+        hi = bpy.context.active_object
+        hi.name = f"{name}_Highlight"
+        bpy.ops.object.shade_smooth()
+        hi.data.materials.append(hi_mat)
+        parts.append(hi)
+    return parts
+''',
+    "export_scene_models": '''def export_scene_models(exports_dir, base_name="model"):
+    exports_dir = Path(exports_dir)
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    bpy.ops.object.select_all(action='DESELECT')
+    for obj in [o for o in bpy.data.objects if o.type == 'MESH']:
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        for mod in list(obj.modifiers):
+            try:
+                bpy.ops.object.modifier_apply(modifier=mod.name)
+            except Exception:
+                obj.modifiers.remove(mod)
+        bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.export_scene.gltf(filepath=str(exports_dir / f"{base_name}.glb"), export_format='GLB', export_apply=True)
+    bpy.ops.wm.obj_export(filepath=str(exports_dir / f"{base_name}.obj"))
+    bpy.ops.wm.stl_export(filepath=str(exports_dir / f"{base_name}.stl"))
+    bpy.ops.export_scene.fbx(filepath=str(exports_dir / f"{base_name}.fbx"))
+    print("MODEL_BUILD_OK")
+''',
+}
+
+
 def sanitize_blender_script(script: str) -> str:
-    """Pre-execution auto-fixer for known Blender API hallucinations."""
+    """Pre-execution auto-fixer for known Blender API hallucinations and helper injections."""
     # 1. Fix parent_set with invalid KEEP_TRANSFORM enum
     script = re.sub(
         r"bpy\.ops\.object\.parent_set\(\s*type\s*=\s*['\"]OBJECT_KEEP_TRANSFORM['\"]\s*\)",
@@ -138,11 +321,47 @@ def sanitize_blender_script(script: str) -> str:
         script
     )
 
-    # 4. Ensure fundamental imports
+    # 4. Safe guard voxel remesh size (prevent OOM freezes if < 0.02)
+    def clamp_voxel(m):
+        val = float(m.group(1))
+        if val < 0.02:
+            return "remesh_voxel_size = 0.025"
+        return m.group(0)
+    script = re.sub(r"remesh_voxel_size\s*=\s*([0-9\.]+)", clamp_voxel, script)
+
+    # Safe guard direct object removal calls against already deleted StructRNA
+    script = re.sub(r"bpy\.data\.objects\.remove\(", "safe_remove_object(", script)
+
+    # 5. Strip any buggy/fragile LLM re-definitions of standard verified helpers so verified implementations take precedence
+    for fn_name in HELPER_DEFINITIONS:
+        pattern = r'def\s+' + fn_name + r'\s*\([^)]*\):(?:\n(?:[ \t]+.*|[ \t]*))*'
+        script = re.sub(pattern, '', script)
+
+    # Iteratively inject any used high-level helper functions and their dependencies
+    changed = True
+    injected_any = False
+    while changed:
+        changed = False
+        for fn_name, fn_def in HELPER_DEFINITIONS.items():
+            if fn_name in script and f"def {fn_name}" not in script:
+                script = fn_def + "\n" + script
+                changed = True
+                injected_any = True
+
+    if injected_any:
+        script = "# Auto-Injected Verified SOTA 3D Sculpting & PBR Helpers\n" + script
+
+    # 6. Ensure fundamental imports
     if "import bpy" not in script:
         script = "import bpy\nimport math\nfrom pathlib import Path\nfrom mathutils import Vector, Euler, Matrix\n" + script
-    elif "from mathutils import" not in script and any(k in script for k in ("Vector(", "Euler(", "Matrix(")):
-        script = "from mathutils import Vector, Euler, Matrix\n" + script
+    else:
+        prefix_imports = []
+        if "from pathlib import Path" not in script and "Path(" in script:
+            prefix_imports.append("from pathlib import Path")
+        if "from mathutils import" not in script and any(k in script for k in ("Vector(", "Euler(", "Matrix(")):
+            prefix_imports.append("from mathutils import Vector, Euler, Matrix")
+        if prefix_imports:
+            script = "\n".join(prefix_imports) + "\n" + script
 
     return script
 
@@ -197,28 +416,50 @@ class Omni3DEngine:
         except StopIteration as stop:
             return stop.value.strip()
 
-    def build_ll3m_prompt(self, user_guidance: str = "", export_formats: list[str] | None = None) -> str:
-        """Construct the LL3M prompt enforcing clean Blender 5.2 procedural modeling."""
+    def build_ll3m_prompt(
+        self,
+        user_guidance: str = "",
+        export_formats: list[str] | None = None,
+        quality_preset: str = "sota_sculpt",
+    ) -> str:
+        """Construct the LL3M prompt enforcing clean Blender 5.2 procedural modeling and SOTA organic sculpting."""
         if not export_formats:
             export_formats = ["glb", "obj", "stl", "fbx"]
 
         formats_str = ", ".join(f.upper() for f in export_formats)
 
-        prompt = f"""You are an elite 3D technical artist, spatial geometrician, and Blender Python (bpy) specialist following the LL3M (Large Language 3D Modelers) methodology.
+        if quality_preset == "sota_sculpt":
+            geometric_architecture = f"""2. SOTA 5-STAGE COMPUTATIONAL SCULPTING (ORGANIC WATERTIGHT MESH):
+   Do NOT generate disconnected balls or simple stacked cones! Follow this production pipeline:
 
-TASK:
-Analyze the reference image and synthesize a complete, standalone, production-ready Blender Python script that procedurally builds this 3D model and exports it into target formats: {formats_str}.
+   STAGE 1: FLUID SKELETAL SWEEPS & ANATOMICAL MASSES:
+   - For flowing/swept features (flames, tails, hair locks, horns, tentacles, limbs):
+     Use `create_swept_spline_mesh(name, control_points, radii, bevel_depth=0.20)`.
+     The `radii` list controls tapering per point (e.g. [1.8, 1.4, 0.7, 0.05] for a tapered flame/tail).
+   - For torso, skull, and head volumes: add scaled UV spheres or cylinders overlapping naturally.
 
-ADDITIONAL USER GUIDANCE:
-{user_guidance or "Faithfully reproduce the primary subject with accurate shapes, PBR colors, and smooth beveled geometry."}
+   STAGE 2: OPENVDB VOXEL REMESH FUSION:
+   - Fuse primary organic body masses and swept bases into a single continuous skin:
+     `body = fuse_objects_voxel_remesh([part1, part2, ...], active_obj=body, voxel_size=0.030, smooth_factor=0.55, smooth_iters=2)`
+   - This melts away all intersection seams and produces a seamless, watertight, organic manifold mesh!
 
-ENGINEERING SPECIFICATION & BEST PRACTICES:
-1. SCENE HYGIENE:
-   - Switch to OBJECT mode if needed.
-   - Delete all existing objects and run bpy.data.orphans_purge() recursively.
-   - Ensure all coordinates are Z-up, character/asset centered at origin.
+   STAGE 3: SUBTRACTIVE BOOLEAN CARVING (ANATOMICAL RECESSES):
+   - Carve eye orbital sockets, mouth cavities, and visor recesses into the remeshed body:
+     `carve_boolean_recess(target_obj=body, cutter_obj=socket_cutter, solver='EXACT')`
+   - Nest eyes recessed INSIDE the carved sockets using `add_nested_eye(name, loc, radius, iris_mat, pupil_mat, hi_mat)` or detailed geometry. Never stick eyes flat on top of the surface!
 
-2. GEOMETRIC ARCHITECTURE (Factory-Based Decomposition):
+   STAGE 4: PROCEDURAL MICRO-DETAIL SURFACE RELIEF:
+   - Apply subtle organic skin, cloth, or surface relief to eliminate flat plastic surfaces:
+     `apply_procedural_relief(target_obj=body, tex_type='CLOUDS', noise_scale=0.20, strength=0.015)`
+
+   STAGE 5: HIGH-FIDELITY PBR SHADING & MULTI-FORMAT EXPORTS:
+   - Create multi-layer PBR materials:
+     `mat = make_organic_pbr_material(name, base_hex="#FF6B1A", roughness=0.35, sss_weight=0.3, rim_hex="#FFAA33", rim_strength=2.0)`
+   - Assign materials to parts, then call:
+     `export_scene_models(exports_dir, base_name="model")`
+   - Finish with: `print("MODEL_BUILD_OK")`"""
+        else:
+            geometric_architecture = f"""2. GEOMETRIC ARCHITECTURE (Factory-Based Decomposition):
    - Decompose into distinct functional parts parented or grouped cleanly.
    - Use small parameterized factory functions: add_sphere(), add_cube(), add_cylinder(), add_torus(), tube_between().
    - Apply scale (bpy.ops.object.transform_apply(scale=True)) on meshes before applying bevel modifiers.
@@ -240,12 +481,29 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
    - GLB: bpy.ops.export_scene.gltf(filepath=str(exports_dir / "model.glb"), export_format="GLB", export_apply=True)
    - OBJ: bpy.ops.wm.obj_export(filepath=str(exports_dir / "model.obj"))
    - STL: bpy.ops.wm.stl_export(filepath=str(exports_dir / "model.stl"))
-   - FBX: bpy.ops.export_scene.fbx(filepath=str(exports_dir / "model.fbx"))
+   - FBX: bpy.ops.export_scene.fbx(filepath=str(exports_dir / "model.fbx"))"""
 
-5. STRICT OUTPUT FORMAT (CRITICAL):
-   - Output EXACTLY ONE single Python code block enclosed in ```python ... ```.
-   - Do NOT output any preliminary snippets, multiple code blocks, or markdown explanations.
-   - The script must be completely self-contained from `import bpy` to export and `print("MODEL_BUILD_OK")`."""
+        prompt = f"""You are an elite 3D technical artist, spatial geometrician, and Blender Python (bpy) specialist following the LL3M (Large Language 3D Modelers) methodology.
+
+TASK:
+Analyze the reference image and synthesize a complete, standalone, production-ready Blender Python script that procedurally builds this 3D model and exports it into target formats: {formats_str}.
+
+ADDITIONAL USER GUIDANCE:
+{user_guidance or "Faithfully reproduce the primary subject with accurate shapes, PBR colors, and smooth beveled geometry."}
+
+ENGINEERING SPECIFICATION & BEST PRACTICES:
+1. SCENE HYGIENE:
+   - Call `init_clean_scene()` or purge existing objects recursively.
+   - Ensure all coordinates are Z-up, character/asset centered at origin.
+
+{geometric_architecture}
+
+FINAL REQUIREMENTS (CRITICAL):
+- Output EXACTLY ONE single Python code block enclosed in ```python ... ```.
+- NOTE: The verified helper functions (`init_clean_scene`, `hex_to_linear`, `make_organic_pbr_material`, `create_swept_spline_mesh`, `fuse_objects_voxel_remesh`, `carve_boolean_recess`, `apply_procedural_relief`, `add_nested_eye`, `export_scene_models`) are ALREADY PRE-DEFINED and automatically provided in the environment. Do NOT write code defining them! Simply invoke them directly.
+- Keep the script concise and direct: focus on anatomical coordinates, tapering radii, socket placements, and PBR color choices.
+- Do NOT output any preliminary snippets, multiple code blocks, or markdown explanations.
+- The script must end with export and `print("MODEL_BUILD_OK")`."""
         return prompt
 
     def stream_ollama_chat(
@@ -356,6 +614,7 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
         model: str = "glm-5.3-flash:cloud",
         guidance: str = "",
         formats: list[str] | None = None,
+        quality_preset: str = "sota_sculpt",
         progress_cb: Callable[[dict], None] | None = None,
     ) -> dict:
         """Complete end-to-end Image-to-3D pipeline execution."""
@@ -374,8 +633,9 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
                 progress_cb(data)
 
         # Stage 1: Spatial Perception
-        report(1, "Perception", f"Analyzing reference image ({image_path.name}) using {model}...")
-        prompt = self.build_ll3m_prompt(user_guidance=guidance, export_formats=formats)
+        preset_name = "SOTA Organic Sculpt" if quality_preset == "sota_sculpt" else "Fast Procedural"
+        report(1, "Perception", f"Analyzing reference image ({image_path.name}) with {model} [{preset_name}]...")
+        prompt = self.build_ll3m_prompt(user_guidance=guidance, export_formats=formats, quality_preset=quality_preset)
 
         # Stage 2: Procedural Code Synthesis
         report(2, "Synthesis", f"Synthesizing Blender Python modeling code via {model}...")

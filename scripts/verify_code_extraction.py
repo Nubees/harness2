@@ -91,4 +91,16 @@ assert "from mathutils import Vector" in sanitized
 assert "# use_auto_smooth deprecated" in sanitized
 print("Test 5 PASS: Script sanitizer auto-corrected parent_set enum and use_auto_smooth!")
 
-print("\nALL 5 ROBUSTNESS TESTS PASSED 100%!")
+# Test 6: SOTA helper injection when LLM invokes high-level sculpting API
+sample_sota_call = """
+import bpy
+body = bpy.data.objects['Cube']
+fuse_objects_voxel_remesh([body], body, voxel_size=0.03)
+create_swept_spline_mesh('Flame', [(0,0,0), (0,0,1)], [1.0, 0.1])
+"""
+sanitized_sota = sanitize_blender_script(sample_sota_call)
+assert "def fuse_objects_voxel_remesh" in sanitized_sota, "Failed: fuse_objects_voxel_remesh not injected"
+assert "def create_swept_spline_mesh" in sanitized_sota, "Failed: create_swept_spline_mesh not injected"
+print("Test 6 PASS: Verified SOTA sculpting helpers are automatically injected into caller scripts!")
+
+print("\nALL 6 ROBUSTNESS TESTS PASSED 100%!")

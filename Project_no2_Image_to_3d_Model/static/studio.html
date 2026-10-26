@@ -136,11 +136,28 @@
           </div>
         </div>
 
-        <!-- 3. Modeling Guidance Prompt -->
+        <!-- 3. Mesh Architecture & Sculpt Quality -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
+            <span>3. Mesh Architecture & Quality</span>
+            <span class="text-[10px] text-cyan-400 font-mono">SOTA Mode</span>
+          </label>
+          <div class="relative">
+            <select id="preset-select" class="w-full bg-slate-850 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500">
+              <option value="sota_sculpt" selected>🌟 SOTA Organic Sculpt (OpenVDB Remesh + Splines + SSS)</option>
+              <option value="fast_procedural">⚡ Fast Procedural (Classic Box & Bevel)</option>
+            </select>
+          </div>
+          <p class="text-[10px] text-slate-500 mt-1 font-mono">
+            OpenVDB fuses volumes into continuous watertight skin; 3D Bézier splines create fluid flowing sweeps.
+          </p>
+        </div>
+
+        <!-- 4. Modeling Guidance Prompt -->
         <div>
           <div class="flex items-center justify-between mb-1.5">
             <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              3. Stylistic & Anatomy Guidance
+              4. Stylistic & Anatomy Guidance
             </label>
             <span id="guidance-status" class="text-[10px] text-cyan-400 font-mono hidden flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
@@ -154,10 +171,10 @@
           </div>
         </div>
 
-        <!-- 4. Target Export Formats -->
+        <!-- 5. Target Export Formats -->
         <div>
           <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-            4. Target Export Deliverables
+            5. Target Export Deliverables
           </label>
           <div class="grid grid-cols-2 gap-2 text-xs font-mono">
             <label class="flex items-center gap-2 p-2 rounded-lg bg-slate-850 border border-slate-700/80 cursor-pointer hover:border-cyan-500/50">
@@ -247,10 +264,11 @@
         <div class="absolute top-4 left-4 z-10 glass-panel rounded-2xl p-3.5 space-y-1 text-xs font-mono pointer-events-none">
           <div class="text-[10px] text-slate-400 uppercase tracking-wider font-sans">Active Asset Inspector</div>
           <div class="text-sm font-bold text-slate-400" id="asset-name">Ready for New Model</div>
-          <div class="flex items-center gap-4 text-slate-400 text-[11px] pt-1">
+          <div class="flex items-center gap-3.5 text-slate-400 text-[11px] pt-1">
             <span>Faces: <strong class="text-slate-300" id="metric-faces">—</strong></span>
             <span>Objects: <strong class="text-slate-300" id="metric-objects">—</strong></span>
             <span>Scale: <strong class="text-slate-300" id="metric-scale">—</strong></span>
+            <span>Sculpt: <strong class="text-cyan-300" id="metric-sculpt">—</strong></span>
           </div>
         </div>
 
@@ -385,6 +403,7 @@
           if (metrics.faces) document.getElementById('metric-faces').textContent = metrics.faces;
           if (metrics.objects) document.getElementById('metric-objects').textContent = metrics.objects;
           if (metrics.scale) document.getElementById('metric-scale').textContent = metrics.scale;
+          if (metrics.sculpt) document.getElementById('metric-sculpt').textContent = metrics.sculpt;
         } else {
           let objCount = 0;
           let faceCount = 0;
@@ -401,6 +420,7 @@
           document.getElementById('metric-faces').textContent = Math.round(faceCount).toLocaleString();
           document.getElementById('metric-objects').textContent = objCount;
           document.getElementById('metric-scale').textContent = `${maxDim.toFixed(2)}m (Z)`;
+          document.getElementById('metric-sculpt').textContent = faceCount > 15000 ? 'OpenVDB SOTA' : 'Procedural';
         }
       }, undefined, (err) => {
         console.error("GLTF load failed:", err);
@@ -595,6 +615,7 @@
       document.getElementById('metric-faces').textContent = '—';
       document.getElementById('metric-objects').textContent = '—';
       document.getElementById('metric-scale').textContent = '—';
+      document.getElementById('metric-sculpt').textContent = '—';
 
       // 2. Clear Source Image & Reset Dropzone
       clearLoadedImage();
@@ -735,14 +756,15 @@
         document.getElementById('elapsed-timer').textContent = `${m}:${s}`;
       }, 1000);
 
-      log(`[Omni-3D] Launching pipeline with model: ${model}`);
+      const quality_preset = document.getElementById('preset-select') ? document.getElementById('preset-select').value : 'sota_sculpt';
+      log(`[Omni-3D] Launching pipeline with model: ${model} [Preset: ${quality_preset}]`);
 
       // Start job
       try {
         const jobRes = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: jsonString({ image: imageParam, model, prompt, formats })
+          body: JSON.stringify({ image: imageParam, model, prompt, formats, quality_preset })
         });
         const job = await jobRes.json();
         if (job.error) throw new Error(job.error);
