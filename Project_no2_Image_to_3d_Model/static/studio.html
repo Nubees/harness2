@@ -227,11 +227,11 @@
         <!-- Viewport Floating Metrics Badge (Top Left) -->
         <div class="absolute top-4 left-4 z-10 glass-panel rounded-2xl p-3.5 space-y-1 text-xs font-mono pointer-events-none">
           <div class="text-[10px] text-slate-400 uppercase tracking-wider font-sans">Active Asset Inspector</div>
-          <div class="text-sm font-bold text-cyan-300" id="asset-name">SpaceMan Alien Astronaut</div>
-          <div class="flex items-center gap-4 text-slate-300 text-[11px] pt-1">
-            <span>Faces: <strong class="text-slate-100" id="metric-faces">30,748</strong></span>
-            <span>Objects: <strong class="text-slate-100" id="metric-objects">74</strong></span>
-            <span>Scale: <strong class="text-slate-100">3.54m (Z)</strong></span>
+          <div class="text-sm font-bold text-slate-400" id="asset-name">Ready for New Model</div>
+          <div class="flex items-center gap-4 text-slate-400 text-[11px] pt-1">
+            <span>Faces: <strong class="text-slate-300" id="metric-faces">—</strong></span>
+            <span>Objects: <strong class="text-slate-300" id="metric-objects">—</strong></span>
+            <span>Scale: <strong class="text-slate-300" id="metric-scale">—</strong></span>
           </div>
         </div>
 
@@ -245,16 +245,16 @@
           <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-2 hidden md:block">
             Download Asset:
           </div>
-          <a id="btn-dl-glb" href="/files/exports/spaceman.glb" download="spaceman.glb" class="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 shadow-lg shadow-cyan-500/10">
+          <a id="btn-dl-glb" class="px-3 py-1.5 rounded-xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 opacity-40 pointer-events-none">
             <span>📦</span> .GLB
           </a>
-          <a id="btn-dl-obj" href="/files/exports/spaceman.obj" download="spaceman.obj" class="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 shadow-lg shadow-amber-500/10">
+          <a id="btn-dl-obj" class="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 opacity-40 pointer-events-none">
             <span>📐</span> .OBJ
           </a>
-          <a id="btn-dl-stl" href="/files/exports/spaceman.stl" download="spaceman.stl" class="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 shadow-lg shadow-emerald-500/10">
+          <a id="btn-dl-stl" class="px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 opacity-40 pointer-events-none">
             <span>🖨️</span> .STL
           </a>
-          <a id="btn-dl-fbx" href="/files/exports/spaceman.fbx" download="spaceman.fbx" class="px-3 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/40 text-purple-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 shadow-lg shadow-purple-500/10">
+          <a id="btn-dl-fbx" class="px-3 py-1.5 rounded-xl bg-purple-500/20 border border-purple-400/40 text-purple-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 opacity-40 pointer-events-none">
             <span>🎮</span> .FBX
           </a>
         </div>
@@ -309,6 +309,7 @@
 
     let activeModel = null;
     let isWireframe = false;
+    let currentLoadId = 0;
 
     function resize() {
       camera.aspect = container.clientWidth / container.clientHeight;
@@ -325,9 +326,12 @@
     }
     animate();
 
-    export function loadGLB(url, name = "Model") {
+    export function loadGLB(url, name = "Model", metrics = null) {
+      const loadId = ++currentLoadId;
       const loader = new GLTFLoader();
       loader.load(url, (gltf) => {
+        if (loadId !== currentLoadId) return; // Invalidate if user clicked New Model or switched models!
+
         if (activeModel) scene.remove(activeModel);
         activeModel = gltf.scene;
 
@@ -342,14 +346,36 @@
 
         scene.add(activeModel);
         controls.target.set(0, 1.0, 0);
-        document.getElementById('asset-name').textContent = name;
+
+        const assetNameEl = document.getElementById('asset-name');
+        assetNameEl.textContent = name;
+        assetNameEl.className = 'text-sm font-bold text-cyan-300';
+
+        if (metrics) {
+          if (metrics.faces) document.getElementById('metric-faces').textContent = metrics.faces;
+          if (metrics.objects) document.getElementById('metric-objects').textContent = metrics.objects;
+          if (metrics.scale) document.getElementById('metric-scale').textContent = metrics.scale;
+        } else {
+          let objCount = 0;
+          let faceCount = 0;
+          activeModel.traverse((child) => {
+            if (child.isMesh) {
+              objCount++;
+              if (child.geometry && child.geometry.index) {
+                faceCount += child.geometry.index.count / 3;
+              } else if (child.geometry && child.geometry.attributes.position) {
+                faceCount += child.geometry.attributes.position.count / 3;
+              }
+            }
+          });
+          document.getElementById('metric-faces').textContent = Math.round(faceCount).toLocaleString();
+          document.getElementById('metric-objects').textContent = objCount;
+          document.getElementById('metric-scale').textContent = `${maxDim.toFixed(2)}m (Z)`;
+        }
       }, undefined, (err) => {
         console.error("GLTF load failed:", err);
       });
     }
-
-    // Load initial SpaceMan baseline asset
-    loadGLB('/files/exports/spaceman.glb', 'SpaceMan Alien Astronaut');
 
     // Viewport controls
     document.getElementById('toggle-wireframe').addEventListener('click', () => {
@@ -378,7 +404,7 @@
     // App State & REST / SSE Pipeline Handling
     // -------------------------------------------------------------
     let currentImageFile = null;
-    let currentImagePath = "spaceman.png";
+    let currentImagePath = null;
     let timerInterval = null;
     let startTime = 0;
 
@@ -480,14 +506,19 @@
 
     // "New Model" Action Button (Clears Omni-3D so user can select a new picture)
     function handleNewModel() {
+      currentLoadId++; // Invalidate any pending in-flight 3D loads
+
       // 1. Clear 3D Viewport
       if (activeModel) {
         scene.remove(activeModel);
         activeModel = null;
       }
-      document.getElementById('asset-name').textContent = 'No Model Loaded';
+      const assetNameEl = document.getElementById('asset-name');
+      assetNameEl.textContent = 'Ready for New Model';
+      assetNameEl.className = 'text-sm font-bold text-slate-400';
       document.getElementById('metric-faces').textContent = '—';
       document.getElementById('metric-objects').textContent = '—';
+      document.getElementById('metric-scale').textContent = '—';
 
       // 2. Clear Source Image & Reset Dropzone
       currentImageFile = null;
@@ -500,6 +531,7 @@
       // 3. Clear Guidance Textarea & Terminal
       guidanceBox.value = '';
       guidanceStatus.classList.add('hidden');
+      guidanceBox.placeholder = 'Select an image above — AI vision will automatically generate tailored stylistic & anatomical guidance here. You can freely edit or customize it...';
       document.getElementById('token-counter').textContent = 'Idle';
       term.textContent = 'Omni-3D Studio cleared. Please select or drop a new reference image above.';
 
@@ -535,6 +567,19 @@
       document.getElementById('dropzone-prompt').classList.add('hidden');
       document.getElementById('image-preview-container').classList.remove('hidden');
       document.getElementById('image-preview').src = "/files/spaceman.png";
+      loadGLB('/files/exports/spaceman.glb', 'SpaceMan Alien Astronaut', { faces: '30,748', objects: '74', scale: '3.54m (Z)' });
+      ['btn-dl-glb', 'btn-dl-obj', 'btn-dl-stl', 'btn-dl-fbx'].forEach(id => {
+        const el = document.getElementById(id);
+        el.classList.remove('opacity-40', 'pointer-events-none');
+      });
+      document.getElementById('btn-dl-glb').href = '/files/exports/spaceman.glb';
+      document.getElementById('btn-dl-glb').download = 'spaceman.glb';
+      document.getElementById('btn-dl-obj').href = '/files/exports/spaceman.obj';
+      document.getElementById('btn-dl-obj').download = 'spaceman.obj';
+      document.getElementById('btn-dl-stl').href = '/files/exports/spaceman.stl';
+      document.getElementById('btn-dl-stl').download = 'spaceman.stl';
+      document.getElementById('btn-dl-fbx').href = '/files/exports/spaceman.fbx';
+      document.getElementById('btn-dl-fbx').download = 'spaceman.fbx';
       triggerAutoGuidance("spaceman.png");
     });
 
