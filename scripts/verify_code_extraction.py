@@ -3,7 +3,7 @@ from pathlib import Path
 
 # Add project directory to sys.path
 sys.path.insert(0, str(Path(r"C:\Projects\Harnes2\Project_no2_Image_to_3d_Model")))
-from omni_engine import extract_blender_script, Omni3DEngine
+from omni_engine import extract_blender_script, sanitize_blender_script, Omni3DEngine
 
 # Test 1: Multiple code blocks (where first is an introductory snippet)
 sample_multi_block = """
@@ -77,4 +77,18 @@ assert res["success"] is False, f"Expected success=False on traceback, got {res[
 tmp_fail_script.unlink(missing_ok=True)
 print("Test 4 PASS: Blender script crash with traceback correctly detected as success=False!")
 
-print("\nALL 4 ROBUSTNESS TESTS PASSED 100%!")
+# Test 5: Script sanitation for invalid parent_set enum and obsolete properties
+sample_hallucinated = """
+import bpy
+bpy.ops.object.parent_set(type='OBJECT_KEEP_TRANSFORM')
+obj.data.use_auto_smooth = True
+v = Vector((1, 2, 3))
+"""
+sanitized = sanitize_blender_script(sample_hallucinated)
+assert "OBJECT_KEEP_TRANSFORM" not in sanitized
+assert "parent_set(type='OBJECT', keep_transform=True)" in sanitized
+assert "from mathutils import Vector" in sanitized
+assert "# use_auto_smooth deprecated" in sanitized
+print("Test 5 PASS: Script sanitizer auto-corrected parent_set enum and use_auto_smooth!")
+
+print("\nALL 5 ROBUSTNESS TESTS PASSED 100%!")

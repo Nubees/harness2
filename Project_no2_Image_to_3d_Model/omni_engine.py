@@ -109,6 +109,60 @@ def extract_blender_script(llm_output: str) -> str:
     return llm_output.strip()
 
 
+def sanitize_blender_script(script: str) -> str:
+    """Pre-execution auto-fixer for known Blender API hallucinations."""
+    # 1. Fix parent_set with invalid KEEP_TRANSFORM enum
+    script = re.sub(
+        r"bpy\.ops\.object\.parent_set\(\s*type\s*=\s*['\"]OBJECT_KEEP_TRANSFORM['\"]\s*\)",
+        "bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)",
+        script
+    )
+    script = re.sub(
+        r"bpy\.ops\.object\.parent_set\(\s*type\s*=\s*['\"]KEEP_TRANSFORM['\"]\s*\)",
+        "bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)",
+        script
+    )
+
+    # 2. Fix use_auto_smooth (removed in Blender 4.0+/5.0+)
+    script = re.sub(r'[\w\.]+\.use_auto_smooth\s*=\s*\w+', '# use_auto_smooth deprecated in Blender 5.x', script)
+
+    # 3. Fix legacy OBJ/STL exporter calls if any
+    script = re.sub(
+        r"bpy\.ops\.export_scene\.obj\(\s*filepath\s*=\s*([^,\)]+)[^\)]*\)",
+        r"bpy.ops.wm.obj_export(filepath=\1)",
+        script
+    )
+    script = re.sub(
+        r"bpy\.ops\.export_mesh\.stl\(\s*filepath\s*=\s*([^,\)]+)[^\)]*\)",
+        r"bpy.ops.wm.stl_export(filepath=\1)",
+        script
+    )
+
+    # 4. Ensure fundamental imports
+    if "import bpy" not in script:
+        script = "import bpy\nimport math\nfrom pathlib import Path\nfrom mathutils import Vector, Euler, Matrix\n" + script
+    elif "from mathutils import" not in script and any(k in script for k in ("Vector(", "Euler(", "Matrix(")):
+        script = "from mathutils import Vector, Euler, Matrix\n" + script
+
+    return script
+
+
+def inject_exports_dir(python_script: str, exports_dir: Path) -> str:
+    """Safely inject or overwrite exports_dir in the generated script with posix path."""
+    exports_posix = exports_dir.resolve().as_posix()
+    target_statement = f'exports_dir = Path("{exports_posix}")'
+
+    pattern = r'exports_dir\s*=\s*Path\(__file__\)\.resolve\(\)\.parent\s*/\s*["\']exports["\']'
+    if re.search(pattern, python_script):
+        python_script = re.sub(pattern, lambda _: target_statement, python_script, count=1)
+    elif re.search(r'exports_dir\s*=\s*Path\([^\)]+\)', python_script):
+        python_script = re.sub(r'exports_dir\s*=\s*Path\([^\)]+\)', lambda _: target_statement, python_script, count=1)
+    else:
+        python_script = f'from pathlib import Path\n{target_statement}\nexports_dir.mkdir(parents=True, exist_ok=True)\n' + python_script
+
+    return python_script
+
+
 class Omni3DEngine:
     """Core synthesis and orchestration engine for Image-to-3D generation."""
 
@@ -170,6 +224,7 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
    - Apply scale (bpy.ops.object.transform_apply(scale=True)) on meshes before applying bevel modifiers.
    - Add Bevel modifiers with 3+ segments on hard edges for specular highlights.
    - For auto-smooth in Blender 4.0+/5.0+: use bmesh sharp-edge calculation or shade_smooth, avoiding obsolete use_auto_smooth.
+   - For parenting: assign child.parent = root directly, or call bpy.ops.object.parent_set(type='OBJECT', keep_transform=True). Never use invalid 'OBJECT_KEEP_TRANSFORM'.
 
 3. PBR MATERIALS (Principled BSDF):
    - Convert hex/sRGB colors to scene-linear before assigning to Base Color.
@@ -366,25 +421,9 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
             report(2, "Failed", "LLM did not return a valid Blender Python modeling script.")
             raise RuntimeError("No valid Blender Python script found in LLM response.")
 
-        # Ensure fundamental imports are present
-        if "import bpy" not in python_script:
-            python_script = "import bpy\nimport math\nfrom pathlib import Path\n" + python_script
-
-        # Strip deprecated Blender 3.x syntax that crashes Blender 5.x
-        python_script = re.sub(r'[\w\.]+\.use_auto_smooth\s*=\s*\w+', '# use_auto_smooth deprecated in Blender 5.x', python_script)
-
-        # Ensure correct exports target directory in script using posix forward slashes
-        exports_posix = exports_dir.resolve().as_posix()
-        target_statement = f'exports_dir = Path("{exports_posix}")'
-
-        # Safely replace exports_dir using lambda (prevents regex backslash escape evaluation on Windows)
-        pattern = r'exports_dir\s*=\s*Path\(__file__\)\.resolve\(\)\.parent\s*/\s*["\']exports["\']'
-        if re.search(pattern, python_script):
-            python_script = re.sub(pattern, lambda _: target_statement, python_script, count=1)
-        elif re.search(r'exports_dir\s*=\s*Path\([^\)]+\)', python_script):
-            python_script = re.sub(r'exports_dir\s*=\s*Path\([^\)]+\)', lambda _: target_statement, python_script, count=1)
-        else:
-            python_script = f'from pathlib import Path\n{target_statement}\nexports_dir.mkdir(parents=True, exist_ok=True)\n' + python_script
+        # Sanitize known Blender API hallucinations & inject target exports_dir
+        python_script = sanitize_blender_script(python_script)
+        python_script = inject_exports_dir(python_script, exports_dir)
 
         script_file = job_dir / "generate_model.py"
         script_file.write_text(python_script, encoding="utf-8")
@@ -394,6 +433,44 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
         report(3, "Blender Compile", "Executing script headlessly in Blender 5.2 LTS...")
         build_result = self.execute_blender_script(script_file)
         (job_dir / "blender_build.log").write_text(build_result["output"], encoding="utf-8")
+
+        # Self-Healing Retry Loop (Autonomous Harnessing)
+        if not build_result["success"]:
+            err_lines = [l for l in build_result["output"].splitlines() if "Error" in l or "Traceback" in l or "File " in l]
+            summary = "\n".join(err_lines[-5:]) if err_lines else build_result["output"][-400:]
+            report(3, "Self-Healing", f"Blender reported error:\n{summary}\nAutonomously repairing script...")
+
+            repair_prompt = f"""The following Blender Python script produced an execution error in Blender 5.2 LTS:
+
+ERROR:
+{summary}
+
+ORIGINAL SCRIPT:
+```python
+{python_script}
+```
+
+TASK:
+Fix the error in the script. Ensure all syntax, operators, and imports are 100% valid for Blender 5.2 LTS.
+Output ONLY the complete corrected script wrapped in a single ```python ... ``` code block without preamble or explanation."""
+
+            stream = self.stream_ollama_chat(prompt=repair_prompt, image_path=None, model=model)
+            try:
+                while True:
+                    next(stream)
+            except StopIteration as stop:
+                repaired_code = stop.value
+
+            (job_dir / "raw_llm_response_repair.txt").write_text(repaired_code, encoding="utf-8")
+            repaired_script = extract_blender_script(repaired_code)
+            if repaired_script and "import bpy" in repaired_script:
+                repaired_script = sanitize_blender_script(repaired_script)
+                repaired_script = inject_exports_dir(repaired_script, exports_dir)
+                script_file.write_text(repaired_script, encoding="utf-8")
+
+                report(3, "Blender Compile", "Re-executing repaired script in Blender 5.2 LTS...")
+                build_result = self.execute_blender_script(script_file)
+                (job_dir / "blender_build.log").write_text(build_result["output"], encoding="utf-8")
 
         if not build_result["success"]:
             err_lines = [l for l in build_result["output"].splitlines() if "Error" in l or "Traceback" in l or "File " in l]
