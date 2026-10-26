@@ -83,22 +83,36 @@
 
         <!-- 1. Source Image Section -->
         <div>
-          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 flex items-center justify-between">
-            <span>1. Reference Image</span>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              1. Reference Image
+            </label>
             <span class="text-[10px] text-cyan-400 cursor-pointer hover:underline" id="load-spaceman-btn">Load SpaceMan Sample</span>
-          </label>
-          <div id="dropzone" class="relative border-2 border-dashed border-slate-700 hover:border-cyan-500/60 rounded-2xl p-4 text-center cursor-pointer transition-all bg-slate-850/50 hover:bg-slate-800/50 group">
+          </div>
+
+          <!-- A. Dropzone (shown when NO image is loaded) -->
+          <div id="dropzone" class="relative border-2 border-dashed border-slate-700 hover:border-cyan-500/60 rounded-2xl p-6 text-center cursor-pointer transition-all bg-slate-850/50 hover:bg-slate-800/50 group">
             <input type="file" id="file-input" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer z-10" />
-            <div id="dropzone-prompt" class="space-y-2 py-4">
+            <div id="dropzone-prompt" class="space-y-2 py-2">
               <div class="w-12 h-12 mx-auto rounded-full bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-cyan-400 group-hover:scale-110 transition-all">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
               </div>
-              <p class="text-xs text-slate-300 font-medium">Drop reference image or click to browse</p>
-              <p class="text-[10px] text-slate-500 font-mono">PNG, JPEG, WebP (2D Concept / Sprite / Photo)</p>
+              <p class="text-xs text-slate-200 font-semibold">Drop reference image or click to browse</p>
+              <p class="text-[10px] text-slate-500 font-mono">PNG, JPEG, WebP (Character / Prop / Concept)</p>
             </div>
-            <div id="image-preview-container" class="hidden relative rounded-xl overflow-hidden max-h-48 bg-slate-950 flex items-center justify-center">
-              <img id="image-preview" src="" alt="Source preview" class="max-h-48 object-contain rounded-lg" />
-              <button id="remove-img-btn" class="absolute top-2 right-2 p-1 rounded-lg bg-slate-900/80 hover:bg-red-500/80 text-white text-xs transition-all z-20">✕</button>
+          </div>
+
+          <!-- B. Active Image Preview Card (shown when an image IS loaded) -->
+          <div id="image-preview-card" class="hidden rounded-2xl overflow-hidden border border-cyan-500/40 bg-slate-950 p-2 shadow-xl space-y-2">
+            <div class="relative w-full rounded-xl overflow-hidden bg-slate-900 flex items-center justify-center" style="height: 220px; min-height: 220px;">
+              <img id="image-preview" src="" alt="Source preview" class="w-full h-full object-contain rounded-lg block" style="width: 100%; height: 100%; object-fit: contain;" />
+              <button id="remove-img-btn" class="absolute top-2 right-2 px-2.5 py-1 rounded-lg bg-slate-900/90 hover:bg-red-500/90 text-white text-[11px] font-mono transition-all z-20 flex items-center gap-1 shadow-lg border border-slate-700/80 cursor-pointer">
+                <span>✕</span> Remove
+              </button>
+            </div>
+            <div class="flex items-center justify-between px-2 pb-1 text-[11px] font-mono">
+              <span id="preview-filename" class="text-cyan-300 font-semibold truncate max-w-[210px]">image.png</span>
+              <button id="change-img-btn" class="text-[10px] text-slate-400 hover:text-cyan-400 underline cursor-pointer">Change Picture</button>
             </div>
           </div>
         </div>
@@ -232,6 +246,17 @@
             <span>Faces: <strong class="text-slate-300" id="metric-faces">—</strong></span>
             <span>Objects: <strong class="text-slate-300" id="metric-objects">—</strong></span>
             <span>Scale: <strong class="text-slate-300" id="metric-scale">—</strong></span>
+          </div>
+        </div>
+
+        <!-- Floating 2D Reference PIP (Bottom Left) -->
+        <div id="viewport-ref-pip" class="hidden absolute bottom-6 left-6 z-10 glass-panel rounded-2xl p-2.5 shadow-2xl max-w-[200px] border border-cyan-500/40">
+          <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 px-1 pb-1">
+            <span class="text-cyan-400 font-semibold">2D Reference</span>
+            <button id="close-ref-pip" class="text-slate-400 hover:text-white text-xs px-1 cursor-pointer">✕</button>
+          </div>
+          <div class="w-36 h-36 rounded-xl overflow-hidden bg-slate-950 flex items-center justify-center border border-slate-800">
+            <img id="viewport-ref-img" src="" alt="Reference PIP" class="w-full h-full object-contain" />
           </div>
         </div>
 
@@ -420,6 +445,50 @@
       term.scrollTop = term.scrollHeight;
     }
 
+    // Unified helper: Show loaded image in preview card and 3D PIP
+    function displayLoadedImage(srcUrl, filename = 'image.png') {
+      const dropzoneEl = document.getElementById('dropzone');
+      const cardEl = document.getElementById('image-preview-card');
+      const previewImg = document.getElementById('image-preview');
+      const filenameEl = document.getElementById('preview-filename');
+      const pip = document.getElementById('viewport-ref-pip');
+      const pipImg = document.getElementById('viewport-ref-img');
+
+      if (dropzoneEl) dropzoneEl.classList.add('hidden');
+      if (cardEl) cardEl.classList.remove('hidden');
+      if (previewImg) previewImg.src = srcUrl;
+      if (filenameEl) filenameEl.textContent = filename;
+
+      if (pip && pipImg) {
+        pipImg.src = srcUrl;
+        pip.classList.remove('hidden');
+      }
+    }
+    window.displayLoadedImage = displayLoadedImage;
+
+    // Unified helper: Clear image state and restore empty dropzone
+    function clearLoadedImage() {
+      currentImageFile = null;
+      currentImagePath = null;
+      if (fileInput) fileInput.value = '';
+
+      const dropzoneEl = document.getElementById('dropzone');
+      const cardEl = document.getElementById('image-preview-card');
+      const previewImg = document.getElementById('image-preview');
+      const pip = document.getElementById('viewport-ref-pip');
+      const pipImg = document.getElementById('viewport-ref-img');
+
+      if (previewImg) previewImg.src = '';
+      if (cardEl) cardEl.classList.add('hidden');
+      if (dropzoneEl) dropzoneEl.classList.remove('hidden');
+
+      if (pip && pipImg) {
+        pipImg.src = '';
+        pip.classList.add('hidden');
+      }
+    }
+    window.clearLoadedImage = clearLoadedImage;
+
     // Auto-generate stylistic and anatomical guidance via Vision LLM
     async function triggerAutoGuidance(imageParam) {
       if (!imageParam) return;
@@ -456,12 +525,11 @@
       currentImageFile = file;
       currentImagePath = null;
 
-      // 1. Show immediate preview
+      // 1. Show immediate preview via FileReader
       const reader = new FileReader();
       reader.onload = async (re) => {
-        document.getElementById('dropzone-prompt').classList.add('hidden');
-        document.getElementById('image-preview-container').classList.remove('hidden');
-        document.getElementById('image-preview').src = re.target.result;
+        const dataUrl = re.target.result;
+        displayLoadedImage(dataUrl, file.name);
 
         // 2. Upload to backend
         log(`Uploading ${file.name} to server...`);
@@ -472,7 +540,7 @@
           const upData = await upRes.json();
           currentImagePath = upData.filepath;
           currentImageFile = null; // file stored on server
-          log(`Reference image ready: ${upData.filepath}`);
+          log(`Reference image ready on server: ${upData.filepath}`);
 
           // 3. Trigger auto-guidance analysis from new image
           triggerAutoGuidance(currentImagePath);
@@ -482,10 +550,13 @@
       };
       reader.readAsDataURL(file);
     }
+    window.handleSelectedFile = handleSelectedFile;
 
     // File input handler
     fileInput.addEventListener('change', (e) => {
-      handleSelectedFile(e.target.files[0]);
+      if (e.target.files && e.target.files[0]) {
+        handleSelectedFile(e.target.files[0]);
+      }
     });
 
     // Drag and Drop handlers
@@ -521,12 +592,7 @@
       document.getElementById('metric-scale').textContent = '—';
 
       // 2. Clear Source Image & Reset Dropzone
-      currentImageFile = null;
-      currentImagePath = null;
-      fileInput.value = '';
-      document.getElementById('image-preview').src = '';
-      document.getElementById('dropzone-prompt').classList.remove('hidden');
-      document.getElementById('image-preview-container').classList.add('hidden');
+      clearLoadedImage();
 
       // 3. Clear Guidance Textarea & Terminal
       guidanceBox.value = '';
@@ -564,9 +630,7 @@
     document.getElementById('load-spaceman-btn').addEventListener('click', () => {
       currentImagePath = "spaceman.png";
       currentImageFile = null;
-      document.getElementById('dropzone-prompt').classList.add('hidden');
-      document.getElementById('image-preview-container').classList.remove('hidden');
-      document.getElementById('image-preview').src = "/files/spaceman.png";
+      displayLoadedImage('/files/spaceman.png', 'spaceman.png');
       loadGLB('/files/exports/spaceman.glb', 'SpaceMan Alien Astronaut', { faces: '30,748', objects: '74', scale: '3.54m (Z)' });
       ['btn-dl-glb', 'btn-dl-obj', 'btn-dl-stl', 'btn-dl-fbx'].forEach(id => {
         const el = document.getElementById(id);
@@ -583,17 +647,28 @@
       triggerAutoGuidance("spaceman.png");
     });
 
+    // Remove picture button
     document.getElementById('remove-img-btn').addEventListener('click', (e) => {
       e.stopPropagation();
-      currentImageFile = null;
-      currentImagePath = null;
-      document.getElementById('image-preview').src = "";
-      document.getElementById('dropzone-prompt').classList.remove('hidden');
-      document.getElementById('image-preview-container').classList.add('hidden');
-      guidanceBox.value = "";
+      clearLoadedImage();
+      guidanceBox.value = '';
       guidanceStatus.classList.add('hidden');
-      fileInput.value = "";
+      log('Reference image removed.');
     });
+
+    // Change picture button
+    document.getElementById('change-img-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      fileInput.click();
+    });
+
+    // Close 3D Viewport Reference PIP button
+    const closePipBtn = document.getElementById('close-ref-pip');
+    if (closePipBtn) {
+      closePipBtn.addEventListener('click', () => {
+        document.getElementById('viewport-ref-pip').classList.add('hidden');
+      });
+    }
 
     // Fetch dynamic models list from backend
     async function loadModels() {
@@ -616,15 +691,6 @@
       }
     }
     loadModels();
-
-    // Trigger Generation
-    const genBtn = document.getElementById('generate-btn');
-    const term = document.getElementById('log-terminal');
-
-    function log(msg) {
-      term.textContent += `\n${msg}`;
-      term.scrollTop = term.scrollHeight;
-    }
 
     genBtn.addEventListener('click', async () => {
       const model = document.getElementById('model-select').value;
