@@ -203,7 +203,15 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
         """Stream chat tokens from Ollama /api/chat yielding progress events."""
         url = f"{self.ollama_url}/api/chat"
         messages = [
-            {"role": "system", "content": "You are an elite 3D technical artist, spatial geometrician, and Blender Python programmer."}
+            {
+                "role": "system",
+                "content": (
+                    "You are an elite 3D technical artist, spatial geometrician, and Blender Python programmer.\n"
+                    "CRITICAL: Keep internal reasoning extremely brief (under 80 words). "
+                    "Immediately write and output the complete, self-contained, runnable Blender Python script wrapped in a single ```python ... ``` block. "
+                    "Do NOT output markdown essays, monologues, or separate snippets."
+                ),
+            }
         ]
 
         if image_path and image_path.is_file():
@@ -259,8 +267,11 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
                     pass
 
         content = "".join(accumulated_content)
+        # Only fallback to thinking if it actually contains python code
         if not content.strip() and accumulated_thinking:
-            content = "".join(accumulated_thinking)
+            joined_th = "".join(accumulated_thinking)
+            if "import bpy" in joined_th:
+                content = joined_th
         return content
 
     def execute_blender_script(self, script_path: Path) -> dict:
@@ -334,9 +345,26 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
 
         # Robustly extract the full Blender Python script (handles multiple blocks & unclosed blocks)
         python_script = extract_blender_script(synthesized_code)
-        if not python_script:
-            report(2, "Failed", "LLM did not return any Blender Python modeling code.")
-            raise RuntimeError("No Python modeling script found in LLM response.")
+
+        # If the first attempt produced no code (e.g. reasoning hit token limit), automatically retry once with direct code prompt
+        if not python_script or "import bpy" not in python_script:
+            report(2, "Synthesis", "Reasoning completed without code. Retrying direct code synthesis...")
+            retry_prompt = prompt + "\n\nCRITICAL INSTRUCTION: Output ONLY the complete runnable Python script starting with ```python\nimport bpy. Do not include chain-of-thought or markdown essays."
+            stream = self.stream_ollama_chat(prompt=retry_prompt, image_path=image_path, model=model)
+            try:
+                while True:
+                    chunk = next(stream)
+                    co = chunk.get("content_chars", 0)
+                    if co > 0:
+                        report(2, "Synthesis", f"Synthesizing Blender Python code ({co:,} chars)...", chunk)
+            except StopIteration as stop:
+                synthesized_code = stop.value
+            (job_dir / "raw_llm_response_retry.txt").write_text(synthesized_code, encoding="utf-8")
+            python_script = extract_blender_script(synthesized_code)
+
+        if not python_script or "import bpy" not in python_script:
+            report(2, "Failed", "LLM did not return a valid Blender Python modeling script.")
+            raise RuntimeError("No valid Blender Python script found in LLM response.")
 
         # Ensure fundamental imports are present
         if "import bpy" not in python_script:
