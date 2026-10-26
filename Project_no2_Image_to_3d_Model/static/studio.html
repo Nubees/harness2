@@ -426,6 +426,7 @@
         console.error("GLTF load failed:", err);
       });
     }
+    window.loadGLB = loadGLB;
 
     // Viewport controls
     document.getElementById('toggle-wireframe').addEventListener('click', () => {
