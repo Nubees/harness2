@@ -87,6 +87,23 @@ class Omni3DEngine:
         except Exception:
             return ["glm-5.3-flash:cloud", "kimi-k2.7-code:cloud", "gemma4:latest"]
 
+    def analyze_image_guidance(self, image_path: Path, model: str = "glm-5.3-flash:cloud") -> str:
+        """Auto-generate stylistic and anatomical 3D modeling guidance from reference image."""
+        prompt = (
+            "Analyze this reference image for a 3D technical artist and Blender modeler. "
+            "Write a concise, 2-3 sentence stylistic and anatomical 3D modeling guidance note describing: "
+            "1. Subject shape, silhouette, and proportions (e.g. chibi cartoon, hard-surface, realistic). "
+            "2. Key anatomical and functional parts to model. "
+            "3. PBR materials and colors (e.g. metallic, matte, glass transmission, emission). "
+            "Keep it direct and actionable for procedural 3D modeling."
+        )
+        stream = self.stream_ollama_chat(prompt=prompt, image_path=image_path, model=model, timeout=120)
+        try:
+            while True:
+                next(stream)
+        except StopIteration as stop:
+            return stop.value.strip()
+
     def build_ll3m_prompt(self, user_guidance: str = "", export_formats: list[str] | None = None) -> str:
         """Construct the LL3M prompt enforcing clean Blender 5.2 procedural modeling."""
         if not export_formats:

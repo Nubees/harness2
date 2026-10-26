@@ -52,8 +52,14 @@
       </div>
     </div>
 
-    <!-- System Status Badges -->
+    <!-- System Status Badges & Actions -->
     <div class="flex items-center gap-3">
+      <!-- New Model Action Button -->
+      <button id="btn-new-model" class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500/25 to-blue-500/25 hover:from-cyan-500/40 hover:to-blue-500/40 border border-cyan-400/50 text-cyan-300 text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-cyan-500/10 active:scale-95 cursor-pointer" title="Clear and select a new image for 3D generation">
+        <span>✨</span>
+        <span>New Model</span>
+      </button>
+
       <div class="hidden sm:flex items-center gap-2 px-3 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs">
         <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
         <span class="text-slate-300 font-mono" id="blender-badge">Blender 5.2.1 LTS</span>
@@ -113,10 +119,20 @@
 
         <!-- 3. Modeling Guidance Prompt -->
         <div>
-          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-            3. Stylistic & Anatomy Guidance
-          </label>
-          <textarea id="prompt-input" rows="3" class="w-full bg-slate-850 border border-slate-700 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 resize-none font-mono" placeholder="e.g., Stylized chibi cartoon alien astronaut, spherical clear helmet, orange suit with chest console, heavy boots, bevel all hard edges..."></textarea>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              3. Stylistic & Anatomy Guidance
+            </label>
+            <span id="guidance-status" class="text-[10px] text-cyan-400 font-mono hidden flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+              <span>AI Analyzing...</span>
+            </span>
+          </div>
+          <textarea id="prompt-input" rows="4" class="w-full bg-slate-850 border border-slate-700 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 resize-none font-mono" placeholder="Select an image above — AI vision will automatically generate tailored stylistic and anatomical guidance here. You can freely edit or customize it..."></textarea>
+          <div class="flex items-center justify-between mt-1 text-[10px] text-slate-500 font-mono">
+            <span>✨ Auto-generated from image</span>
+            <span class="text-slate-400">Editable before generation</span>
+          </div>
         </div>
 
         <!-- 4. Target Export Formats -->
@@ -366,6 +382,152 @@
     let timerInterval = null;
     let startTime = 0;
 
+    const fileInput = document.getElementById('file-input');
+    const dropzone = document.getElementById('dropzone');
+    const genBtn = document.getElementById('generate-btn');
+    const term = document.getElementById('log-terminal');
+    const guidanceBox = document.getElementById('prompt-input');
+    const guidanceStatus = document.getElementById('guidance-status');
+
+    function log(msg) {
+      term.textContent += `\n${msg}`;
+      term.scrollTop = term.scrollHeight;
+    }
+
+    // Auto-generate stylistic and anatomical guidance via Vision LLM
+    async function triggerAutoGuidance(imageParam) {
+      if (!imageParam) return;
+      const model = document.getElementById('model-select').value;
+      guidanceStatus.classList.remove('hidden');
+      guidanceStatus.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span><span>AI Analyzing image...</span>';
+      guidanceBox.placeholder = 'Analyzing reference image with AI vision for geometry and anatomy...';
+
+      try {
+        log(`[Vision AI] Analyzing reference image (${imageParam}) with ${model}...`);
+        const res = await fetch('/api/analyze-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: imageParam, model })
+        });
+        const data = await res.json();
+        if (data.guidance) {
+          guidanceBox.value = data.guidance;
+          guidanceStatus.innerHTML = '<span>✨ Auto-generated (editable)</span>';
+          log('[Vision AI] Guidance generated. You can freely edit or add to it before generating.');
+        } else if (data.error) {
+          guidanceStatus.innerHTML = '<span class="text-amber-400">Manual input</span>';
+          log(`[Vision warning] ${data.error}`);
+        }
+      } catch (err) {
+        guidanceStatus.innerHTML = '<span class="text-amber-400">Manual input</span>';
+        console.warn('Auto guidance request failed:', err);
+      }
+    }
+
+    // Process image file selection (upload immediately, show preview, and trigger vision analysis)
+    async function handleSelectedFile(file) {
+      if (!file) return;
+      currentImageFile = file;
+      currentImagePath = null;
+
+      // 1. Show immediate preview
+      const reader = new FileReader();
+      reader.onload = async (re) => {
+        document.getElementById('dropzone-prompt').classList.add('hidden');
+        document.getElementById('image-preview-container').classList.remove('hidden');
+        document.getElementById('image-preview').src = re.target.result;
+
+        // 2. Upload to backend
+        log(`Uploading ${file.name} to server...`);
+        const fd = new FormData();
+        fd.append('image', file);
+        try {
+          const upRes = await fetch('/api/upload', { method: 'POST', body: fd });
+          const upData = await upRes.json();
+          currentImagePath = upData.filepath;
+          currentImageFile = null; // file stored on server
+          log(`Reference image ready: ${upData.filepath}`);
+
+          // 3. Trigger auto-guidance analysis from new image
+          triggerAutoGuidance(currentImagePath);
+        } catch (err) {
+          log(`[Upload error] ${err.message}`);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // File input handler
+    fileInput.addEventListener('change', (e) => {
+      handleSelectedFile(e.target.files[0]);
+    });
+
+    // Drag and Drop handlers
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('border-cyan-400', 'bg-slate-800/60');
+    });
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.classList.remove('border-cyan-400', 'bg-slate-800/60');
+    });
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('border-cyan-400', 'bg-slate-800/60');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        handleSelectedFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    // "New Model" Action Button (Clears Omni-3D so user can select a new picture)
+    function handleNewModel() {
+      // 1. Clear 3D Viewport
+      if (activeModel) {
+        scene.remove(activeModel);
+        activeModel = null;
+      }
+      document.getElementById('asset-name').textContent = 'No Model Loaded';
+      document.getElementById('metric-faces').textContent = '—';
+      document.getElementById('metric-objects').textContent = '—';
+
+      // 2. Clear Source Image & Reset Dropzone
+      currentImageFile = null;
+      currentImagePath = null;
+      fileInput.value = '';
+      document.getElementById('image-preview').src = '';
+      document.getElementById('dropzone-prompt').classList.remove('hidden');
+      document.getElementById('image-preview-container').classList.add('hidden');
+
+      // 3. Clear Guidance Textarea & Terminal
+      guidanceBox.value = '';
+      guidanceStatus.classList.add('hidden');
+      document.getElementById('token-counter').textContent = 'Idle';
+      term.textContent = 'Omni-3D Studio cleared. Please select or drop a new reference image above.';
+
+      // 4. Reset Progress Bar
+      document.getElementById('progress-container').classList.add('hidden');
+      document.getElementById('progress-bar').style.width = '0%';
+      document.getElementById('current-stage-title').textContent = 'Ready';
+      if (timerInterval) clearInterval(timerInterval);
+      document.getElementById('elapsed-timer').textContent = '00:00';
+
+      // 5. Dim / disable download buttons until new model is generated
+      ['btn-dl-glb', 'btn-dl-obj', 'btn-dl-stl', 'btn-dl-fbx'].forEach(id => {
+        const el = document.getElementById(id);
+        el.removeAttribute('href');
+        el.classList.add('opacity-40', 'pointer-events-none');
+      });
+
+      // 6. Reset Generate Button
+      genBtn.disabled = false;
+      document.getElementById('btn-icon').textContent = '⚡';
+      document.getElementById('btn-text').textContent = 'Generate 3D Model';
+
+      // 7. Auto-open file picker so user can pick immediately
+      fileInput.click();
+    }
+
+    document.getElementById('btn-new-model').addEventListener('click', handleNewModel);
+
     // Load sample SpaceMan
     document.getElementById('load-spaceman-btn').addEventListener('click', () => {
       currentImagePath = "spaceman.png";
@@ -373,23 +535,7 @@
       document.getElementById('dropzone-prompt').classList.add('hidden');
       document.getElementById('image-preview-container').classList.remove('hidden');
       document.getElementById('image-preview').src = "/files/spaceman.png";
-      document.getElementById('prompt-input').value = "Retro chibi alien astronaut with orange jumpsuit, cyan sphere helmet, clear glass visor, and alien head inside.";
-    });
-
-    // File input handler
-    const fileInput = document.getElementById('file-input');
-    fileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      currentImageFile = file;
-      currentImagePath = null;
-      const reader = new FileReader();
-      reader.onload = (re) => {
-        document.getElementById('dropzone-prompt').classList.add('hidden');
-        document.getElementById('image-preview-container').classList.remove('hidden');
-        document.getElementById('image-preview').src = re.target.result;
-      };
-      reader.readAsDataURL(file);
+      triggerAutoGuidance("spaceman.png");
     });
 
     document.getElementById('remove-img-btn').addEventListener('click', (e) => {
@@ -399,6 +545,8 @@
       document.getElementById('image-preview').src = "";
       document.getElementById('dropzone-prompt').classList.remove('hidden');
       document.getElementById('image-preview-container').classList.add('hidden');
+      guidanceBox.value = "";
+      guidanceStatus.classList.add('hidden');
       fileInput.value = "";
     });
 
@@ -502,7 +650,12 @@
             document.getElementById('btn-text').textContent = 'Generate 3D Model';
             log("Pipeline completed successfully!");
 
-            // Update viewer with newly generated GLB
+            // Update viewer with newly generated GLB & un-dim download buttons
+            ['btn-dl-glb', 'btn-dl-obj', 'btn-dl-stl', 'btn-dl-fbx'].forEach(id => {
+              const el = document.getElementById(id);
+              el.classList.remove('opacity-40', 'pointer-events-none');
+            });
+
             if (evt.deliverables && evt.deliverables.glb) {
               const glbUrl = `/files/jobs/${job.job_id}/exports/${evt.deliverables.glb.filename}`;
               loadGLB(glbUrl, "Generated Asset");

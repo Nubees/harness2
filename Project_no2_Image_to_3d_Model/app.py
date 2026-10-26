@@ -217,6 +217,42 @@ class StudioHTTPHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(payload)
             return
 
+        # 2. Auto-Analyze Image for Stylistic & Anatomy Guidance
+        if path == "/api/analyze-image":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+
+            image_ref = body.get("image", "")
+            model = body.get("model", "glm-5.3-flash:cloud")
+
+            img_path = PROJECT_DIR / image_ref
+            if not img_path.is_file():
+                img_path = Path(image_ref)
+            if not img_path.is_file():
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": f"Image file not found: {image_ref}"}).encode("utf-8"))
+                return
+
+            try:
+                guidance = ENGINE.analyze_image_guidance(img_path, model=model)
+                payload = json.dumps({"guidance": guidance}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(payload)))
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(payload)
+            except Exception as exc:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+            return
+
         # 2. Trigger Generation Pipeline
         if path == "/api/generate":
             length = int(self.headers.get("Content-Length", 0))
