@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Harness² Dual-Shift Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card: #111827;
+      --card-inner: #1f2937;
+      --border: #374151;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+  <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-6 shadow-2xl max-w-2xl w-full space-y-6">
+    
+    <!-- Top Header -->
+    <div class="flex items-center justify-between border-b border-[var(--border)] pb-4">
+      <div>
+        <h1 class="text-xl font-bold flex items-center gap-2.5">
+          <span id="conn-dot" class="inline-block w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+          Dual-Shift Operating Console
+        </h1>
+        <p class="text-xs text-[var(--text-muted)] mt-0.5">Antigravity (Day Shift) &times; Harness² Engine (Night Shift)</p>
+      </div>
+      <div class="flex items-center gap-2.5">
+        <span id="conn-badge" class="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+          Connecting...
+        </span>
+        <span id="model-badge" class="text-xs px-3 py-1 rounded-full bg-[var(--card-inner)] border border-[var(--border)] font-mono text-cyan-300">
+          Model: Scanning...
+        </span>
+      </div>
+    </div>
+
+    <!-- Dual-Shift Cards Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      
+      <!-- Day Shift Card (Antigravity) -->
+      <div class="bg-[var(--card-inner)] border border-[var(--border)] rounded-xl p-4 space-y-3 relative overflow-hidden">
+        <div class="absolute top-0 left-0 right-0 h-1 bg-amber-400"></div>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <span class="text-2xl">☀️</span>
+            <div>
+              <div class="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Day Shift</div>
+              <div class="text-sm font-bold">Antigravity Chat</div>
+            </div>
+          </div>
+          <span id="day-badge" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            ACTIVE
+          </span>
+        </div>
+        <p class="text-xs text-[var(--text-muted)] leading-relaxed">
+          Interactive conversational architect, immediate code editing, and task direction in the foreground.
+        </p>
+        <div id="day-status-box" class="text-xs bg-[var(--card)] p-2.5 rounded-lg border border-[var(--border)] font-mono text-emerald-300">
+          Status: Ready for commands
+        </div>
+      </div>
+
+      <!-- Night Shift Card (Harness2 Engine) -->
+      <div class="bg-[var(--card-inner)] border border-[var(--border)] rounded-xl p-4 space-y-3 relative overflow-hidden">
+        <div id="night-stripe" class="absolute top-0 left-0 right-0 h-1 bg-indigo-500"></div>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <span class="text-2xl">🌙</span>
+            <div>
+              <div class="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Night Shift</div>
+              <div class="text-sm font-bold">Harness² Engine</div>
+            </div>
+          </div>
+          <span id="night-badge" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+            STANDBY
+          </span>
+        </div>
+        <p id="night-desc" class="text-xs text-[var(--text-muted)] leading-relaxed">
+          Autonomous recursive optimization: Propose candidates &rarr; Probe trials &rarr; Compose deliverable.
+        </p>
+        <div id="night-status-box" class="text-xs bg-[var(--card)] p-2.5 rounded-lg border border-[var(--border)] font-mono text-[var(--text-muted)] truncate">
+          Status: Awaiting task dispatch
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Active Pipeline Stage Indicator -->
+    <div class="bg-[var(--card-inner)] border border-[var(--border)] rounded-xl p-4 space-y-3">
+      <div class="flex items-center justify-between text-xs">
+        <span class="font-semibold text-[var(--text-muted)] uppercase tracking-wider">Harness² Recursive Pipeline</span>
+        <span id="pipeline-count" class="font-mono text-cyan-400">0 / 4 Stages</span>
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-xs font-mono">
+        <div id="stage-1" class="p-2.5 rounded-lg bg-[var(--card)] border border-[var(--border)] text-[var(--text-muted)] transition-all">
+          1. Propose
+        </div>
+        <div id="stage-2" class="p-2.5 rounded-lg bg-[var(--card)] border border-[var(--border)] text-[var(--text-muted)] transition-all">
+          2. Probe
+        </div>
+        <div id="stage-3" class="p-2.5 rounded-lg bg-[var(--card)] border border-[var(--border)] text-[var(--text-muted)] transition-all">
+          3. Compose
+        </div>
+        <div id="stage-4" class="p-2.5 rounded-lg bg-[var(--card)] border border-[var(--border)] text-[var(--text-muted)] transition-all">
+          4. Reflect
+        </div>
+      </div>
+    </div>
+
+    <!-- Knowledge Bridge & Telemetry Status -->
+    <div class="flex flex-col sm:flex-row items-center justify-between text-xs gap-3 pt-1 px-1">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+        <span class="text-[var(--text-muted)]">Knowledge Bridge:</span>
+        <span id="bridge-status" class="font-medium text-blue-300">Connected to GEMINI.md & CLAUDE.md</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-[var(--text-muted)]">
+          Lessons: <strong id="lessons-count" class="text-amber-400 font-mono">0</strong> Active
+        </span>
+        <span class="text-[var(--text-muted)]">|</span>
+        <span id="ollama-status" class="text-[var(--text-muted)] flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-gray-500"></span> Ollama: Checking...
+        </span>
+      </div>
+    </div>
+
+    <!-- Latest Reflection Snippet -->
+    <div id="lesson-box" class="hidden text-xs bg-[var(--card-inner)] border border-amber-500/20 rounded-xl p-3.5 space-y-1">
+      <div class="text-[10px] uppercase font-bold tracking-wider text-amber-400 flex items-center gap-1">
+        <span>💡</span> Latest Autonomous Lesson Adopted:
+      </div>
+      <p id="lesson-text" class="text-[var(--text-muted)] italic leading-relaxed line-clamp-2">
+        Scanning library...
+      </p>
+    </div>
+
+  </div>
+
+  <script>
+    const SERVER_URL = window.location.origin.includes(':8765') ? window.location.origin : 'http://127.0.0.1:8765';
+    let sseSource = null;
+    let pollTimer = null;
+
+    function updateUI(data) {
+      if (!data) return;
+
+      // 1. Ollama status
+      const ollama = data.ollama || {};
+      const ollamaEl = document.getElementById('ollama-status');
+      if (ollama.connected) {
+        ollamaEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Ollama: ${ollama.model_count} models`;
+      } else {
+        ollamaEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> Ollama: Disconnected`;
+      }
+
+      // 2. Day Shift
+      const day = data.day_shift || {};
+      const dayBadge = document.getElementById('day-badge');
+      const dayBox = document.getElementById('day-status-box');
+      if (day.status === 'ACTIVE') {
+        dayBadge.className = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        dayBadge.textContent = 'ACTIVE';
+        dayBox.textContent = `Status: ${day.details || 'Ready for commands'}`;
+      } else {
+        dayBadge.className = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-500/10 text-gray-400 border border-gray-500/20';
+        dayBadge.textContent = 'STANDBY';
+      }
+
+      // 3. Night Shift
+      const night = data.night_shift || {};
+      const nightBadge = document.getElementById('night-badge');
+      const nightBox = document.getElementById('night-status-box');
+      const nightStripe = document.getElementById('night-stripe');
+      const modelBadge = document.getElementById('model-badge');
+
+      if (night.model && night.model !== 'None (Idle)') {
+        modelBadge.textContent = `Model: ${night.model}`;
+      }
+
+      if (night.status === 'RUNNING') {
+        nightBadge.className = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse';
+        nightBadge.textContent = 'RUNNING';
+        nightStripe.className = 'absolute top-0 left-0 right-0 h-1 bg-emerald-400 animate-pulse';
+        const elapsed = night.elapsed_sec ? ` (${night.elapsed_sec}s)` : '';
+        nightBox.textContent = `[${night.stage_name}] ${night.details || night.objective || 'Processing...'}${elapsed}`;
+        nightBox.className = 'text-xs bg-[var(--card)] p-2.5 rounded-lg border border-emerald-500/30 font-mono text-emerald-300 truncate';
+      } else if (night.status === 'COMPLETED') {
+        nightBadge.className = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30';
+        nightBadge.textContent = 'COMPLETED';
+        nightStripe.className = 'absolute top-0 left-0 right-0 h-1 bg-blue-400';
+        nightBox.textContent = `Status: ${night.details || 'Task complete'}`;
+        nightBox.className = 'text-xs bg-[var(--card)] p-2.5 rounded-lg border border-[var(--border)] font-mono text-blue-300 truncate';
+      } else if (night.status === 'FAILED' || night.status === 'CRASHED' || night.status === 'CANCELLED') {
+        nightBadge.className = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-rose-500/20 text-rose-300 border border-rose-500/30';
+        nightBadge.textContent = night.status;
+        nightStripe.className = 'absolute top-0 left-0 right-0 h-1 bg-rose-500';
+        nightBox.textContent = `Alert: ${night.details || 'Task terminated unexpectedly'}`;
+        nightBox.className = 'text-xs bg-[var(--card)] p-2.5 rounded-lg border border-rose-500/30 font-mono text-rose-300 truncate';
+      } else if (night.status === 'STALE') {
+        nightBadge.className = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30';
+        nightBadge.textContent = 'STALE';
+        nightStripe.className = 'absolute top-0 left-0 right-0 h-1 bg-amber-400';
+        nightBox.textContent = `Notice: ${night.details || 'Task inactive'}`;
+        nightBox.className = 'text-xs bg-[var(--card)] p-2.5 rounded-lg border border-amber-500/30 font-mono text-amber-300 truncate';
+      } else {
+        nightBadge.className = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20';
+        nightBadge.textContent = 'STANDBY';
+        nightStripe.className = 'absolute top-0 left-0 right-0 h-1 bg-indigo-500';
+        nightBox.textContent = `Status: ${night.details || 'Awaiting task dispatch'}`;
+        nightBox.className = 'text-xs bg-[var(--card)] p-2.5 rounded-lg border border-[var(--border)] font-mono text-[var(--text-muted)] truncate';
+      }
+
+      // 4. Recursive Pipeline Stages
+      const currentStage = night.stage || 0;
+      document.getElementById('pipeline-count').textContent = `${night.status === 'RUNNING' || night.status === 'COMPLETED' ? currentStage : 0} / 4 Stages`;
+
+      for (let s = 1; s <= 4; s++) {
+        const el = document.getElementById(`stage-${s}`);
+        if (night.status === 'RUNNING' && s === currentStage) {
+          el.className = 'p-2.5 rounded-lg bg-emerald-500/20 border-2 border-emerald-400 text-emerald-200 font-bold animate-pulse shadow-lg shadow-emerald-500/20';
+        } else if ((night.status === 'RUNNING' && s < currentStage) || night.status === 'COMPLETED') {
+          el.className = 'p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-300';
+        } else {
+          el.className = 'p-2.5 rounded-lg bg-[var(--card)] border border-[var(--border)] text-[var(--text-muted)]';
+        }
+      }
+
+      // 5. Knowledge Bridge & Latest Lesson
+      const kb = data.knowledge_bridge || {};
+      document.getElementById('lessons-count').textContent = kb.count || 0;
+
+      if (kb.latest && kb.latest.lesson) {
+        document.getElementById('lesson-box').classList.remove('hidden');
+        document.getElementById('lesson-text').textContent = `"${kb.latest.lesson}..."`;
+      }
+    }
+
+    let pollInterval = 1500;
+    let successfulPolls = 0;
+
+    function connectSSE() {
+      if (sseSource) sseSource.close();
+      if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+
+      try {
+        sseSource = new EventSource(`${SERVER_URL}/api/events`);
+        sseSource.onopen = () => {
+          document.getElementById('conn-dot').className = 'inline-block w-3 h-3 rounded-full bg-emerald-400 animate-pulse';
+          document.getElementById('conn-badge').className = 'text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono';
+          document.getElementById('conn-badge').textContent = 'SSE LIVE';
+          pollInterval = 1500;
+        };
+        sseSource.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            updateUI(data);
+          } catch (err) {}
+        };
+        sseSource.onerror = () => {
+          sseSource.close();
+          startPollingFallback();
+        };
+      } catch (err) {
+        startPollingFallback();
+      }
+    }
+
+    function startPollingFallback() {
+      if (pollTimer) clearTimeout(pollTimer);
+      document.getElementById('conn-dot').className = 'inline-block w-3 h-3 rounded-full bg-amber-400 animate-pulse';
+      document.getElementById('conn-badge').className = 'text-xs px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono';
+      document.getElementById('conn-badge').textContent = `POLLING (${(pollInterval / 1000).toFixed(1)}s)`;
+
+      const poll = async () => {
+        try {
+          const res = await fetch(`${SERVER_URL}/api/status`);
+          if (res.ok) {
+            const data = await res.json();
+            updateUI(data);
+            successfulPolls++;
+            pollInterval = 1500; // Reset backoff
+            document.getElementById('conn-badge').textContent = 'POLLING (1.5s)';
+            if (successfulPolls >= 3) {
+              successfulPolls = 0;
+              connectSSE();
+              return;
+            }
+          } else {
+            setOffline();
+          }
+        } catch (e) {
+          setOffline();
+        }
+        pollTimer = setTimeout(poll, pollInterval);
+      };
+
+      poll();
+    }
+
+    function setOffline() {
+      successfulPolls = 0;
+      pollInterval = Math.min(pollInterval * 1.5, 10000); // Exponential backoff up to 10s
+      document.getElementById('conn-dot').className = 'inline-block w-3 h-3 rounded-full bg-rose-500';
+      document.getElementById('conn-badge').className = 'text-xs px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 font-mono';
+      document.getElementById('conn-badge').textContent = `OFFLINE (${(pollInterval / 1000).toFixed(0)}s)`;
+      const nightBox = document.getElementById('night-status-box');
+      if (nightBox && nightBox.textContent.includes('Awaiting')) {
+        nightBox.textContent = 'Telemetry server offline — run start_dashboard.bat';
+      }
+    }
+
+    // Initialize connection
+    connectSSE();
+  </script>
+</body>
+</html>

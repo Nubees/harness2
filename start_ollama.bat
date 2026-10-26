@@ -97,10 +97,19 @@ echo [5] Run 1 Live Benchmark Task (--substrate cx)
 echo [6] Setup Benchmark (harness2-setup jb/lab/wb)
 echo [7] Switch / Rescan Ollama Model (Local and Cloud)
 echo [8] Run Local Deterministic Demo
+echo [D] Launch Live Dual-Shift Dashboard (Web UI at http://localhost:8765)
 echo [9] Exit
 echo(
 set "choice=1"
-set /p choice="Enter choice [1-9, Default 1]: "
+set /p choice="Enter choice [1-9, D, Default 1]: "
+
+if /i "!choice!"=="D" (
+    echo(
+    echo Launching Dual-Shift Telemetry Dashboard in background...
+    start "" start_dashboard.bat
+    echo(
+    goto menu
+)
 
 if "!choice!"=="1" (
     echo(

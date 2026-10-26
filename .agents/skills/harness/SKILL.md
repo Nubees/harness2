@@ -25,6 +25,7 @@ Run the task dispatcher in the background using `run_command`:
 ```cmd
 .venv\Scripts\python scripts/dispatch_task.py --task "<task_description>" --model <selected_model>
 ```
+*Live Telemetry:* You and the user can track real-time recursion progress (Propose -> Probe -> Compose -> Reflect) live at `http://localhost:8765/dashboard` (served by `scripts/telemetry_server.py` or `start_dashboard.bat`).
 
 ### 3. Automatic Learning & Assistant Sync
 The dispatcher executes the recursive Propose–Probe–Compose cycle:

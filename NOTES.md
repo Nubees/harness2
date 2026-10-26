@@ -76,3 +76,13 @@ We are extending Harness² beyond static benchmarks into a **live autonomous imp
 - [x] Create `scripts/sync_knowledge.py`: The bridge that extracts reflection lessons from `runs/` and updates `GEMINI.md` and `CLAUDE.md`.
 - [x] Create `.agents/skills/harness/SKILL.md`: The Antigravity skill enabling seamless task handoff directly from chat.
 - [x] Engage Verifier and Critic subagents to audit, test, and challenge scripts with fault-tolerant prefix stripping and tag handling.
+
+---
+
+## 5. Active Backlog & Next Tasks
+- [x] **Wire Shift Dashboard to Live Telemetry Socket/Poller:**
+  - **Implemented:** Created [`scripts/telemetry_server.py`](scripts/telemetry_server.py) providing REST (`/api/status`) and SSE (`/api/events`) endpoints bound to `0.0.0.0:8765` with PNA/CORS support.
+  - **Live UI:** Created [`dashboard/index.html`](dashboard/index.html) and updated [`shift_dashboard.html`](C:/Users/User101/.gemini/antigravity/brain/94c366a4-3998-4777-90c1-31fdc6170b73/shift_dashboard.html) with SSE streaming, exponential polling backoff, PID liveness detection, and crash/stale handling.
+  - **Task Pipeline Integration:** Updated [`scripts/dispatch_task.py`](scripts/dispatch_task.py) to publish stage updates and atomic state to `runs/telemetry_status.json` with `atexit` signal guards.
+  - **Launcher Suite:** Created [`start_dashboard.bat`](start_dashboard.bat) and added option `[D]` to [`start_ollama.bat`](start_ollama.bat).
+  - **Audited:** 5/5 automated test pass via Verifier Subagent; hardened against offline storming, port binding, and process orphans via Critic Subagent.

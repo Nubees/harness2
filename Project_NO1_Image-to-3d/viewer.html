@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Blaze — Procedural Cute Fireball · Three.js</title>
+<style>
+  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#0d0503; }
+
+  /* F9 — deterministic stacking, independent of DOM append order */
+  #bg           { z-index:0; }
+  canvas        { z-index:1; }
+  #vignette     { z-index:2; }
+  #title, #hint { z-index:3; }
+  #fallback     { z-index:4; }
+
+  /* kept for the pre-boot paint; the live background is an in-scene quad (F2) */
+  #bg { position:fixed; inset:0;
+        background:radial-gradient(120% 95% at 50% 36%, #3a170a 0%, #230c06 46%, #0d0503 100%); }
+  #vignette { position:fixed; inset:0; pointer-events:none;
+        background:radial-gradient(125% 125% at 50% 42%, transparent 55%, rgba(0,0,0,.55) 100%); }
+  canvas { position:fixed; inset:0; display:block; }
+  #title { position:fixed; top:24px; left:28px; user-select:none; pointer-events:none;
+           font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+  #title h1 { margin:0; font-size:17px; font-weight:800; letter-spacing:.34em; color:#ffb35c;
+              text-shadow:0 0 18px rgba(255,120,20,.45); }
+  #title p { margin:5px 0 0; font-size:10.5px; letter-spacing:.2em; color:rgba(255,170,110,.5);
+             text-transform:uppercase; }
+  #hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); pointer-events:none;
+          font-family:system-ui,sans-serif; font-size:11px; letter-spacing:.16em;
+          color:rgba(255,190,130,.5); text-transform:uppercase; }
+  #fallback { position:fixed; inset:0; display:none; place-items:center; text-align:center;
+              padding:0 24px; color:#ffb35c; font-family:system-ui,sans-serif;
+              font-size:14px; letter-spacing:.08em; }
+</style>
+</head>
+<body>
+<div id="bg"></div>
+<div id="title"><h1>BLAZE</h1><p>procedural fireball · three.js</p></div>
+<div id="hint">drag to orbit &nbsp;·&nbsp; scroll to zoom</div>
+<div id="fallback">WebGL is not available in this browser.</div>
+
+<!-- F3 (Patch B): boot watchdog FIRST, so it observes every later failure -->
+<script>
+  window.__BLAZE_BOOTED = false;
+  window.__BLAZE_FAILED = false;
+  window.showBootError = function (msg) {
+    window.__BLAZE_FAILED = true;
+    const f = document.getElementById('fallback');
+    f.style.display = 'grid';
+    if (msg) f.textContent = msg;
+  };
+  /* script-load failures (blocked / offline CDN) fire capture-phase error events */
+  addEventListener('error', function (e) {
+    if (window.__BLAZE_BOOTED || window.__BLAZE_FAILED) return;
+    const t = e.target;
+    if (t && t !== window && t.tagName === 'SCRIPT')
+      showBootError('Failed to load the 3D engine — check your connection and refresh.');
+  }, true);
+  /* everything else: syntax errors, unsupported browsers, hung loads */
+  setTimeout(function () {
+    if (!window.__BLAZE_BOOTED && !window.__BLAZE_FAILED)
+      showBootError('Still loading… if nothing appears, check your connection and refresh.');
+  }, 10000);
+</script>
+
+<!-- F3 (Patch B): importmap polyfill for Safari < 16.4 / Firefox < 108 (non-async to avoid module race condition) -->
+<script src="https://cdn.jsdelivr.net/npm/es-module-shims@1.10.0/dist/es-module-shims.min.js"></script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* F8 (Patch G): seeded LCG — deterministic art direction, identical on every load */
+let _seed = 0x9e3779b9 >>> 0;
+const rand = () => {
+  _seed = (Math.imul(_seed, 1664525) + 1013904223) >>> 0;
+  return _seed / 4294967296;
+};
+
+function boot() {
+
+  /* ============================================================
+     0. Core setup
+  ============================================================ */
+  THREE.ColorManagement.enabled = false;    // deliberate: raw hand-authored cartoon colors;
+                                            // LinearSRGB output = pass-through (hex in = hex on screen)
+
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  } catch (e) {
+    const err = new Error('WebGL is not available in this browser.');
+    err.userMessage = err.message;
+    throw err;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  renderer.setClearColor(0x0d0503, 1);      // F2 (Patch C): opaque canvas — deterministic compositing
+  document.body.appendChild(renderer.domElement);
+
+  /* F3 (Patch D): context-loss UX — three r160 re-initializes GPU state on restore */
+  renderer.domElement.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    showBootError('Graphics context lost — recovering…');
+  });
+  renderer.domElement.addEventListener('webglcontextrestored', () => {
+    document.getElementById('fallback').style.display = 'none';
+  });
+
+  const scene  = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 100);
+  camera.position.set(0.8, 0.75, 5.7);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(-0.35, 0.12, 0);
+  controls.enableDamping   = true;
+  controls.dampingFactor   = 0.06;
+  controls.minDistance     = 3.4;    // F7 (Patch I): stay outside the flame envelope (~2.4+ from center)
+  controls.maxDistance     = 11;
+  controls.maxPolarAngle   = 2.05;   // F7 (Patch I): no deep under-floor dives
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  controls.autoRotate      = !reduced;
+  controls.autoRotateSpeed = 0.9;
+
+  let idleTimer = null;
+  controls.addEventListener('start', () => { controls.autoRotate = false; clearTimeout(idleTimer); });
+  controls.addEventListener('end',   () => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { if (!reduced) controls.autoRotate = true; }, 7000);
+  });
+
+  const sharedTime = { value: 0 };   // one clock uniform shared by ALL materials
+  const UP = new THREE.Vector3(0, 1, 0);
+
+  /* F2 (Patch C): fullscreen in-scene background — replaces transparent-canvas compositing.
+     Every blend (embers, halo, pool) now behaves exactly as authored over an opaque surface. */
+  const bgUniforms = { uRes: { value: new THREE.Vector2(innerWidth, innerHeight) } };
+  const bgQuad = new THREE.Mesh(
+    new THREE.PlaneGeometry(2, 2),
+    new THREE.ShaderMaterial({
+      uniforms: bgUniforms,
+      depthTest: false,
+      depthWrite: false,
+      vertexShader: `
+        varying vec2 vUv;
+        void main() { vUv = uv; gl_Position = vec4(position.xy, 0.999, 1.0); }`,
+      fragmentShader: `
+        varying vec2 vUv;
+        uniform vec2 uRes;
+        void main() {
+          vec2 p = vUv - vec2(0.5, 0.36);
+          p.x *= (uRes.x / uRes.y);
+          vec2 q = p / vec2(1.2, 0.95);   // responsive 120% x 95% ellipse @ (50%, 36%)
+          float d = length(q);
+          vec3 col = mix(vec3(0.227, 0.090, 0.039), vec3(0.137, 0.047, 0.024), smoothstep(0.0, 0.46, d));
+          col = mix(col, vec3(0.051, 0.020, 0.012), smoothstep(0.46, 1.0, d));
+          gl_FragColor = vec4(col, 1.0);
+        }`
+    })
+  );
+  bgQuad.renderOrder = -1;
+  bgQuad.frustumCulled = false;
+  scene.add(bgQuad);
+
+  /* ============================================================
+     1. Shaders
+  ============================================================ */
+  const VERT_STD = `
+  varying vec3 vN;
+  varying vec3 vV;
+  varying vec3 vPos;
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vN   = normalize(normalMatrix * normal);
+    vV   = normalize(-mv.xyz);
+    vPos = position;
+    gl_Position = projectionMatrix * mv;
+  }`;
+
+  /* --- body: view-dependent orange -> red ramp + living flicker --- */
+  const BODY_FRAG = `
+  uniform float uTime;
+  uniform vec3 uColA;
+  uniform vec3 uColB;
+  uniform vec3 uColC;
+  varying vec3 vN;
+  varying vec3 vV;
+  varying vec3 vPos;
+  void main() {
+    vec3 N = normalize(vN);
+    vec3 V = normalize(vV);
+    float ndv = clamp(dot(N, V), 0.0, 1.0);
+    float rim = pow(1.0 - ndv, 1.5);
+    vec3 col = mix(uColA, uColB, smoothstep(0.05, 0.60, rim));
+    col = mix(col, uColC, smoothstep(0.50, 0.98, rim));
+    vec3 L = normalize(vec3(-0.35, 0.55, 0.75));
+    col += uColA * pow(max(dot(N, L), 0.0), 2.5) * 0.30;
+    col *= 1.0 - 0.22 * smoothstep(0.1, -0.9, vPos.y);
+    col *= 0.95 + 0.05 * sin(uTime * 5.3) + 0.03 * sin(uTime * 9.1 + 1.7);
+    float hot = sin(vPos.x * 3.1 + uTime * 1.4)
+              * sin(vPos.y * 3.7 - uTime * 1.1)
+              * sin(vPos.z * 2.9 + uTime * 0.9);
+    col += uColA * max(hot, 0.0) * 0.05;
+    gl_FragColor = vec4(col, 1.0);
+  }`;
+
+  /* --- F5 (Patch F): flame cap — the scallop is a POLAR wobble that slides the hem
+         ALONG the head surface, so it can never lift off or clip through the scalp --- */
+  const CAP_VERT = `
+  uniform float uTime;
+  varying vec3 vPos;
+  varying vec3 vN;
+  varying vec3 vV;
+  void main() {
+    vec3 p = position;
+    float r  = length(p);
+    float az = atan(p.z + 1e-4, p.x + 1e-4);
+    float th = acos(clamp(p.y / r, -1.0, 1.0));
+    float rimW = smoothstep(0.85, 1.2, th);              // strongest at the hem (synthesis fix:
+                                                         // patch had this smoothstep inverted)
+    float wob  = 0.055 * sin(az * 9.0 + uTime * 2.1)
+               + 0.030 * sin(az * 5.0 - uTime * 1.4);
+    th += wob * rimW;                                    // hem waves ALONG the surface
+    // Signature widow's peak V-crest dipping down between the eyes (p.z > 0, centered at p.x ~ 0)
+    float frontFacing = max(p.z / r, 0.0);
+    float vPeak = exp(-pow(p.x / r, 2.0) * 32.0) * frontFacing;
+    th += vPeak * 0.32 * rimW;
+    float st = sin(th);
+    p = r * vec3(st * cos(az), cos(th), st * sin(az));
+    p *= 1.0 + 0.010 * sin(uTime * 3.1 + az * 2.0);      // subtle breathing (stays ~3% proud)
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    vN = normalize(normalMatrix * normal);
+    vV = normalize(-mv.xyz);
+    vPos = position;
+    gl_Position = projectionMatrix * mv;
+  }`;
+  const CAP_FRAG = `
+  uniform float uTime;
+  uniform vec3 uColA;
+  uniform vec3 uColB;
+  uniform vec3 uColC;
+  varying vec3 vPos;
+  varying vec3 vN;
+  varying vec3 vV;
+  void main() {
+    float az = atan(vPos.z + 0.0001, vPos.x + 0.0001);
+    float streak = 0.5 + 0.5 * sin(az * 9.0 + uTime * 2.3 + vPos.y * 2.5);
+    streak = smoothstep(0.30, 1.0, streak);
+    float h = smoothstep(0.30, 1.05, vPos.y);
+    vec3 col = mix(uColC, uColB, h);
+    col = mix(col, uColA, streak * h * 0.7);
+    col *= 0.92 + 0.08 * sin(uTime * 4.4 + az * 3.0);
+    float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.0);
+    col += uColA * fres * 0.18;
+    gl_FragColor = vec4(col, 1.0);
+  }`;
+
+  /* --- flame tongues: sway in vertex stage, layered fire palette in fragment.
+         (Note: sway does not recompute normals — only the small fresnel term uses them.) --- */
+  const FLAME_VERT = `
+  uniform float uTime;
+  uniform float uAmp;
+  uniform float uSpeed;
+  uniform float uPhase;
+  attribute float aT;
+  attribute float aAcross;
+  varying float vT;
+  varying float vAcross;
+  varying vec3 vN;
+  varying vec3 vV;
+  void main() {
+    vT = aT;
+    vAcross = aAcross;
+    vec3 p = position;
+    float k  = aT * aT;
+    float s1 = sin(uTime * uSpeed + uPhase + aT * 5.0);
+    float s2 = sin(uTime * uSpeed * 0.63 + uPhase * 1.71 + aT * 9.0 + 1.37);
+    p.y += s1 * uAmp * k;
+    p.z += s2 * uAmp * 0.7 * k;
+    p.x -= s1 * uAmp * 0.22 * k;
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    vN = normalize(normalMatrix * normal);
+    vV = normalize(-mv.xyz);
+    gl_Position = projectionMatrix * mv;
+  }`;
+  const FLAME_FRAG = `
+  uniform float uTime;
+  uniform float uSpeed;
+  uniform float uPhase;
+  uniform float uCoreMix;
+  uniform vec3 uColBase;
+  uniform vec3 uColTip;
+  uniform vec3 uColCore;
+  varying float vT;
+  varying float vAcross;
+  varying vec3 vN;
+  varying vec3 vV;
+  void main() {
+    float edge = abs(vAcross);
+    float core = pow(1.0 - edge, 2.2);
+    float grad = smoothstep(0.02, 0.95, vT + core * 0.35);
+    vec3 col = mix(uColBase, uColTip, grad);
+    col = mix(col, uColCore, core * uCoreMix * (0.35 + 0.65 * vT));
+    col *= 1.0 - 0.45 * pow(edge, 4.0);
+    col *= 0.88 + 0.20 * sin(uTime * uSpeed * 1.55 + uPhase * 2.3 + vT * 7.0) * (0.25 + 0.75 * vT);
+    float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.0);
+    col += uColCore * fres * 0.15;
+    gl_FragColor = vec4(col, 1.0);
+  }`;
+
+  /* --- eye sclera: golden toon shading + true gloss (Patch J) --- */
+  const SCLERA_FRAG = `
+  uniform vec3 uBase;
+  uniform vec3 uRim;
+  varying vec3 vN;
+  varying vec3 vV;
+  varying vec3 vPos;
+  void main() {
+    vec3 N = normalize(vN);
+    vec3 V = normalize(vV);
+    float rim = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 1.9);
+    vec3 col = mix(uBase, uRim, rim * 0.85);
+    vec3 L = normalize(vec3(-0.3, 0.6, 0.8));
+    col += uBase * pow(max(dot(N, L), 0.0), 2.0) * 0.16;
+    vec3 H = normalize(L + V);                                              /* J: Blinn streak */
+    col += vec3(1.0, 0.98, 0.90) * pow(max(dot(N, H), 0.0), 80.0) * 0.55;
+    gl_FragColor = vec4(col, 1.0);
+  }`;
+
+  /* --- GPU ember particles (fully time-driven, zero CPU updates) --- */
+  const EMBER_VERT = `
+  uniform float uTime;
+  uniform float uPixelRatio;
+  attribute float aSeed;
+  attribute float aSize;
+  varying float vFade;
+  varying vec3 vCol;
+  float hash(float n) { return fract(sin(n) * 43758.5453123); }
+  void main() {
+    float s = aSeed;
+    float life = fract(uTime * (0.085 + 0.075 * hash(s * 7.13)) + s);
+    float h1 = hash(s * 13.7);
+    float h2 = hash(s * 29.3);
+    float h3 = hash(s * 53.1);
+    vec3 spawn = vec3(-0.35 - 1.7 * h1, 0.25 + 1.25 * h2, (h3 - 0.5) * 1.7);
+    vec3 vel   = vec3(-0.5 - 0.6 * hash(s * 3.7), 0.7 + 0.7 * hash(s * 11.9),
+                      (hash(s * 17.3) - 0.5) * 0.5);
+    vec3 pos = spawn + vel * life * 2.4;
+    pos.x += sin(uTime * (0.8 + h1) + s * 40.0) * 0.18 * life;
+    pos.y += cos(uTime * (0.6 + h2) + s * 31.0) * 0.12 * life;
+    pos.z += sin(uTime * 0.7 + s * 23.0) * 0.10 * life;
+    vFade = smoothstep(0.0, 0.12, life) * (1.0 - smoothstep(0.55, 0.95, life));
+    float heat = hash(s * 41.7);
+    vCol = mix(vec3(1.0, 0.83, 0.32), vec3(1.0, 0.32, 0.06), heat);
+    vCol *= 1.0 + 0.35 * sin(uTime * (6.0 + heat * 8.0) + s * 50.0);
+    vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+    gl_PointSize = aSize * uPixelRatio * (1.0 - 0.55 * life) * (320.0 / -mv.z);
+    gl_Position = projectionMatrix * mv;
+  }`;
+  const EMBER_FRAG = `
+  varying float vFade;
+  varying vec3 vCol;
+  void main() {
+    float d = length(gl_PointCoord - 0.5) * 2.0;
+    float a = smoothstep(1.0, 0.1, d) * vFade;
+    vec3 col = vCol * (1.0 + (1.0 - smoothstep(0.0, 0.5, d)) * 0.9);
+    gl_FragColor = vec4(col, a);
+  }`;
+
+  /* --- warm glow pool under the character --- */
+  const GLOW_VERT = `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }`;
+  const GLOW_FRAG = `
+  uniform float uTime;
+  varying vec2 vUv;
+  void main() {
+    float d = length(vUv - 0.5) * 2.0;
+    float a = pow(smoothstep(1.0, 0.0, d), 1.6);
+    float pulse = 0.8 + 0.2 * sin(uTime * 2.2);
+    vec3 col = mix(vec3(1.0, 0.35, 0.05), vec3(1.0, 0.70, 0.25), a);
+    gl_FragColor = vec4(col, a * 0.45 * pulse);
+  }`;
+
+  /* ============================================================
+     2. Character
+  ============================================================ */
+  const character = new THREE.Group();
+  scene.add(character);
+
+  /* --- body sphere (48×32 — plenty for a shader-shaded ellipsoid) --- */
+  const bodyMat = new THREE.ShaderMaterial({
+    vertexShader: VERT_STD,
+    fragmentShader: BODY_FRAG,
+    uniforms: {
+      uTime: sharedTime,
+      uColA: { value: new THREE.Color(0xffb43a) },
+      uColB: { value: new THREE.Color(0xfb7c14) },
+      uColC: { value: new THREE.Color(0xe0330c) }
+    }
+  });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), bodyMat);
+  body.scale.set(1.02, 0.98, 0.98);
+  character.add(body);
+
+  /* --- F5 (Patch F): flame cap, scaled to the body ellipsoid × 1.03 --- */
+  const capMat = new THREE.ShaderMaterial({
+    vertexShader: CAP_VERT,
+    fragmentShader: CAP_FRAG,
+    uniforms: {
+      uTime: sharedTime,
+      uColA: { value: new THREE.Color(0xffb02e) },
+      uColB: { value: new THREE.Color(0xff6a00) },
+      uColC: { value: new THREE.Color(0xd92b0c) }
+    }
+  });
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 32, 0, Math.PI * 2, 0, 1.2), capMat);
+  cap.scale.set(1.02, 0.98, 0.98).multiplyScalar(1.03);   // body ellipsoid × 1.03 — always ~3% proud
+  character.add(cap);
+
+  /* --- face: big glossy eyes + smile --- */
+  const scleraMat = new THREE.ShaderMaterial({
+    vertexShader: VERT_STD,
+    fragmentShader: SCLERA_FRAG,
+    uniforms: {
+      uBase: { value: new THREE.Color(0xffd54a) },   // golden sclera, matched to the reference
+      uRim:  { value: new THREE.Color(0xef8414) }    // amber edge
+    }
+  });
+  const pupilMat     = new THREE.MeshBasicMaterial({ color: 0x551708 });
+  const pupilGlowMat = new THREE.MeshBasicMaterial({ color: 0xb84a0e });
+  const highlightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const mouthMat     = new THREE.MeshBasicMaterial({ color: 0x7a1a05 });
+
+  function createEye(side) {
+    const group = new THREE.Group();
+    const dir = new THREE.Vector3(0.36 * side, 0.02, 0.93).normalize();
+    group.position.copy(dir).multiplyScalar(0.92);
+    group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+
+    const sclera = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24), scleraMat);
+    sclera.scale.set(0.205, 0.265, 0.14);
+    group.add(sclera);
+
+    const pupilGroup = new THREE.Group();
+    pupilGroup.position.set(0, -0.035, 0.15);
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 18), pupilMat);
+    pupil.scale.set(0.125, 0.165, 0.05);
+    pupilGroup.add(pupil);
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), pupilGlowMat);
+    glow.scale.set(0.085, 0.05, 0.02);
+    glow.position.set(0, -0.09, 0.045);
+    pupilGroup.add(glow);
+    group.add(pupilGroup);
+
+    const hl1 = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), highlightMat);
+    hl1.scale.set(0.048, 0.056, 0.024);
+    hl1.position.set(0.042, 0.042, 0.20);
+    group.add(hl1);
+
+    character.add(group);
+    return { group, pupilGroup };
+  }
+  const eyeR = createEye(1);
+  const eyeL = createEye(-1);
+
+  /* Delicate chevron 'v' smile matching fire.png */
+  const mouthGroup = new THREE.Group();
+  const mSegGeom = new THREE.CylinderGeometry(0.010, 0.010, 0.042, 12);
+  const leftWing = new THREE.Mesh(mSegGeom, mouthMat);
+  leftWing.position.set(-0.016, 0.010, 0);
+  leftWing.rotation.z = Math.PI * 0.28;
+  const rightWing = new THREE.Mesh(mSegGeom, mouthMat);
+  rightWing.position.set(0.016, 0.010, 0);
+  rightWing.rotation.z = -Math.PI * 0.28;
+  const centerJoint = new THREE.Mesh(new THREE.SphereGeometry(0.010, 8, 8), mouthMat);
+  centerJoint.position.set(0, 0, 0);
+  mouthGroup.add(leftWing, rightWing, centerJoint);
+
+  const mdir = new THREE.Vector3(0, -0.155, 0.988).normalize();
+  mouthGroup.position.copy(mdir).multiplyScalar(1.010);
+  mouthGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), mdir);
+  character.add(mouthGroup);
+
+  /* ============================================================
+     3. Procedural flame tongue system
+  ============================================================ */
+  const flamesGroup = new THREE.Group();
+  character.add(flamesGroup);
+
+  /* ribbon along a curved centerline; elliptical cross-section tapers to a point */
+  function flameGeometry(len, width, curl, wave, thick = 0.38, segs = 28, rad = 10) {
+    const pos = [], nor = [], aT = [], aAcross = [], idx = [];
+    const T = new THREE.Vector3(), N = new THREE.Vector3(), B = new THREE.Vector3();
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const cx = len * t;
+      const cy = curl * len * t * t;
+      const cz = Math.sin(t * Math.PI) * wave * len;
+      T.set(len, 2 * curl * len * t, Math.cos(t * Math.PI) * wave * len * Math.PI).normalize();
+      N.set(0, 1, 0).addScaledVector(T, -UP.dot(T));            // width axis ~ world-up
+      if (N.lengthSq() < 1e-6) N.set(0, 0, 1).addScaledVector(T, -T.z);
+      N.normalize();
+      B.crossVectors(T, N).normalize();                          // thickness axis
+      /* width profile: smooth swell -> point (tiny ε-floor kills degenerate tip triangles) */
+      const w  = width * Math.max(Math.pow(Math.max(Math.sin(Math.PI * Math.pow(t, 0.62)), 0), 0.85), 0.02);
+      const th = w * thick;
+      for (let j = 0; j <= rad; j++) {
+        const phi = (j / rad) * Math.PI * 2;
+        const cp = Math.cos(phi), sp = Math.sin(phi);
+        pos.push(cx + N.x * w * cp + B.x * th * sp,
+                 cy + N.y * w * cp + B.y * th * sp,
+                 cz + N.z * w * cp + B.z * th * sp);
+        const iW = 1 / Math.max(w, 1e-6), iT = 1 / Math.max(th, 1e-6);
+        const nx = N.x * cp * iW + B.x * sp * iT;
+        const ny = N.y * cp * iW + B.y * sp * iT;
+        const nz = N.z * cp * iW + B.z * sp * iT;
+        const il = 1 / (Math.hypot(nx, ny, nz) || 1);
+        nor.push(nx * il, ny * il, nz * il);
+        aT.push(t);
+        aAcross.push(cp);
+      }
+    }
+    for (let i = 0; i < segs; i++)
+      for (let j = 0; j < rad; j++) {
+        const a = i * (rad + 1) + j, b = a + rad + 1;
+        idx.push(a, b, a + 1, b, b + 1, a + 1);
+      }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('normal',   new THREE.Float32BufferAttribute(nor, 3));
+    g.setAttribute('aT',       new THREE.Float32BufferAttribute(aT, 1));
+    g.setAttribute('aAcross',  new THREE.Float32BufferAttribute(aAcross, 1));
+    g.setIndex(idx);
+    return g;
+  }
+
+  /* F1 (Patch A): three attach modes + schema guard — a malformed config is skipped and
+     logged instead of crashing the page.
+       mode 1: { p, dir }  free-floating droplet
+       mode 2: { n, s }    attached at head normal n, swept along hint s (projected tangent)
+       mode 3: { n, dir }  attached at n, explicit flow dir (projected tangent)                */
+  function addFlame(cfg) {
+    if (!(cfg.p ? cfg.dir : (cfg.n && (cfg.s || cfg.dir)))) {
+      console.error('addFlame: invalid config, skipped', cfg);
+      return;
+    }
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: FLAME_VERT,
+      fragmentShader: FLAME_FRAG,
+      side: THREE.DoubleSide,
+      uniforms: {
+        uTime: sharedTime,
+        uAmp:   { value: cfg.amp   ?? 0.15 },
+        uSpeed: { value: cfg.speed ?? 2.3 },
+        uPhase: { value: rand() * Math.PI * 2 },        // F8: seeded
+        uColBase: { value: new THREE.Color(cfg.base) },
+        uColTip:  { value: new THREE.Color(cfg.tip) },
+        uColCore: { value: new THREE.Color(cfg.core) },
+        uCoreMix: { value: cfg.coreMix ?? 0.5 }
+      }
+    });
+    const mesh = new THREE.Mesh(flameGeometry(cfg.len, cfg.w, cfg.curl, cfg.wave ?? 0.05), mat);
+
+    const X = new THREE.Vector3();
+    const n = new THREE.Vector3(...(cfg.n ?? [0, 1, 0])).normalize();
+    if (cfg.p) {                                   // mode 1 — free droplet
+      mesh.position.set(...cfg.p);
+      X.set(...cfg.dir).normalize();
+    } else {                                       // modes 2/3 — attached to the head
+      mesh.position.copy(n).multiplyScalar(cfg.r ?? 0.94);
+      if (cfg.dir) {                               // mode 3 — explicit flow, kept tangent (F1)
+        X.set(...cfg.dir).normalize().addScaledVector(n, -X.dot(n));
+        if (X.lengthSq() < 1e-6) X.set(-1, 0, 0);
+        X.normalize();
+      } else {                                     // mode 2 — sweep hint projected tangent
+        const s = new THREE.Vector3(...(cfg.s ?? [-1, 0, 0]));
+        X.copy(s).addScaledVector(n, -s.dot(n));
+        if (X.lengthSq() < 1e-6) X.set(-1, 0, 0);
+        X.normalize();
+      }
+    }
+    const Y = UP.clone().addScaledVector(X, -UP.dot(X));       // curl axis ~ world-up
+    if (Y.lengthSq() < 1e-6) Y.set(0, 0, 1).addScaledVector(X, -X.z);
+    Y.normalize();
+    const Z = new THREE.Vector3().crossVectors(X, Y).normalize();
+    mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Z));
+    flamesGroup.add(mesh);
+  }
+
+  /* n = attach normal on head, s = sweep hint, r = attach radius.
+     All 33 ribbons share ONE GL program (identical shader source -> three's program cache).
+     (Optional further win: merge per layer via BufferGeometryUtils for low-end mobile.) */
+  const FLAMES = [
+    /* deep-red back layer (longest, swept back-left) */
+    { n:[0.25,0.90,-0.35], s:[-1,0.15,-0.55], len:2.3, w:0.34, curl:0.55, wave:0.10, r:0.92, amp:0.20, speed:1.9, base:0xc21c06, tip:0xff5a00, core:0xffa62b, coreMix:0.30 },
+    { n:[0.65,0.70,-0.30], s:[-1,0.30,-0.35], len:2.0, w:0.30, curl:0.65, wave:0.08, r:0.92, amp:0.18, speed:2.1, base:0xc21c06, tip:0xff5a00, core:0xffa62b, coreMix:0.30 },
+    { n:[0.80,0.55, 0.10], s:[-1,0.35, 0.05], len:1.9, w:0.28, curl:0.70, wave:0.06, r:0.92, amp:0.17, speed:2.0, base:0xc21c06, tip:0xff5a00, core:0xffa62b, coreMix:0.30 },
+    { n:[0.55,0.75, 0.45], s:[-1,0.30, 0.25], len:1.7, w:0.26, curl:0.60, wave:0.05, r:0.92, amp:0.16, speed:2.2, base:0xc21c06, tip:0xff5a00, core:0xffa62b, coreMix:0.30 },
+    { n:[0.00,0.96,-0.28], s:[-1,0.20,-0.45], len:2.4, w:0.32, curl:0.50, wave:0.12, r:0.92, amp:0.20, speed:1.8, base:0xb01605, tip:0xff4d00, core:0xff9a1f, coreMix:0.28 },
+    { n:[-0.45,0.80,-0.35],s:[-1,0.10,-0.40], len:2.1, w:0.30, curl:0.45, wave:0.10, r:0.92, amp:0.19, speed:1.9, base:0xb01605, tip:0xff4d00, core:0xff9a1f, coreMix:0.28 },
+    /* orange mid layer */
+    { n:[0.30,0.92,-0.25], s:[-1,0.35,-0.30], len:1.6, w:0.24, curl:0.70, wave:0.06, r:0.96, amp:0.15, speed:2.4, base:0xff6a00, tip:0xffa91f, core:0xffd23f, coreMix:0.45 },
+    { n:[0.70,0.65, 0.05], s:[-1,0.45, 0.10], len:1.4, w:0.22, curl:0.80, wave:0.05, r:0.96, amp:0.14, speed:2.5, base:0xff6a00, tip:0xffa91f, core:0xffd23f, coreMix:0.45 },
+    { n:[0.45,0.80, 0.40], s:[-1,0.40, 0.30], len:1.3, w:0.20, curl:0.75, wave:0.05, r:0.96, amp:0.14, speed:2.6, base:0xff6a00, tip:0xffa91f, core:0xffd23f, coreMix:0.45 },
+    { n:[-0.10,0.98,-0.15],s:[-1,0.30,-0.25], len:1.7, w:0.24, curl:0.60, wave:0.08, r:0.96, amp:0.15, speed:2.3, base:0xff6a00, tip:0xffa91f, core:0xffd23f, coreMix:0.45 },
+    { n:[-0.55,0.75,-0.30],s:[-1,0.15,-0.30], len:1.5, w:0.22, curl:0.50, wave:0.08, r:0.96, amp:0.15, speed:2.2, base:0xff6a00, tip:0xffa91f, core:0xffd23f, coreMix:0.45 },
+    { n:[0.85,0.45, 0.25], s:[-1,0.35, 0.30], len:1.2, w:0.20, curl:0.80, wave:0.04, r:0.96, amp:0.13, speed:2.6, base:0xff6a00, tip:0xffa91f, core:0xffd23f, coreMix:0.45 },
+    { n:[-0.35,0.65, 0.65], s:[-1,0.35,0.35], len:1.25, w:0.20, curl:0.65, wave:0.05, r:0.96, amp:0.14, speed:2.4, base:0xff6a00, tip:0xffa91f, core:0xffd23f, coreMix:0.45 },
+    { n:[-0.05,0.80, 0.60], s:[-1,0.30,0.30], len:1.35, w:0.22, curl:0.60, wave:0.06, r:0.96, amp:0.14, speed:2.3, base:0xff6a00, tip:0xffa91f, core:0xffd23f, coreMix:0.45 },
+    /* bright yellow core streaks */
+    { n:[0.35,0.90,-0.20], s:[-1,0.45,-0.20], len:1.3, w:0.13, curl:0.80, wave:0.05, r:1.00, amp:0.12, speed:2.8, base:0xffc837, tip:0xffedb0, core:0xfff8e0, coreMix:0.75 },
+    { n:[0.65,0.72, 0.10], s:[-1,0.50, 0.15], len:1.1, w:0.12, curl:0.90, wave:0.04, r:1.00, amp:0.11, speed:2.9, base:0xffc837, tip:0xffedb0, core:0xfff8e0, coreMix:0.75 },
+    { n:[0.05,0.97,-0.10], s:[-1,0.40,-0.15], len:1.4, w:0.13, curl:0.70, wave:0.06, r:1.00, amp:0.12, speed:2.7, base:0xffc837, tip:0xffedb0, core:0xfff8e0, coreMix:0.75 },
+    { n:[-0.35,0.85,-0.25],s:[-1,0.25,-0.20], len:1.2, w:0.12, curl:0.60, wave:0.06, r:1.00, amp:0.12, speed:2.6, base:0xffc837, tip:0xffedb0, core:0xfff8e0, coreMix:0.75 },
+    /* crest rising from the top-front, sweeping back-left  (mode 3) */
+    { n:[0.10,0.80,0.60], dir:[-0.45,0.85,0.25], len:1.45, w:0.30, curl:0.35, wave:0.05, r:0.96, amp:0.16, speed:2.0, base:0xff7a1a, tip:0xffb62e, core:0xffe38a, coreMix:0.50 },
+    { n:[0.35,0.72,0.55], dir:[-0.30,0.90,0.30], len:1.15, w:0.24, curl:0.40, wave:0.04, r:0.96, amp:0.15, speed:2.2, base:0xff7a1a, tip:0xffb62e, core:0xffe38a, coreMix:0.50 },
+    /* forelock over the forehead + right-side licks  (mode 3) */
+    { n:[0.45,0.55,0.70], dir:[-0.55,0.55,0.55], len:0.95, w:0.18, curl:0.55, wave:0.04, r:0.97, amp:0.13, speed:2.5, base:0xff8c00, tip:0xffc23f, core:0xffedb0, coreMix:0.55 },
+    { n:[0.90,0.35,0.25], dir:[ 0.25,0.85,0.35], len:0.70, w:0.14, curl:0.50, wave:0.03, r:0.96, amp:0.12, speed:2.8, base:0xff6a00, tip:0xffb400, core:0xffe38a, coreMix:0.50 },
+    { n:[0.95,0.10,0.30], dir:[ 0.55,0.65,0.35], len:0.55, w:0.12, curl:0.60, wave:0.03, r:0.96, amp:0.11, speed:3.0, base:0xff6a00, tip:0xffb400, core:0xffe38a, coreMix:0.50 }
+  ];
+  FLAMES.forEach(addFlame);
+
+  /* small detached flame droplets floating in the wake */
+  const DROP_PAL = [
+    { base:0xd93407, tip:0xff7a00, core:0xffc23f },
+    { base:0xff8c00, tip:0xffc23f, core:0xfff0b8 },
+    { base:0xffc23f, tip:0xffedb0, core:0xfff8e0 }
+  ];
+  const DROPS = [
+    { p:[-1.35,1.35, 0.25], d:[-0.60,0.80, 0.10], len:0.34, w:0.10, curl:0.7, c:1 },
+    { p:[-1.90,0.95,-0.15], d:[-0.70,0.60,-0.20], len:0.28, w:0.09, curl:0.6, c:0 },
+    { p:[-2.35,1.25, 0.10], d:[-0.50,0.85, 0.15], len:0.40, w:0.11, curl:0.8, c:1 },
+    { p:[-1.15,0.55, 0.35], d:[-0.80,0.45, 0.20], len:0.22, w:0.08, curl:0.5, c:2 },
+    { p:[-2.05,0.35, 0.25], d:[-0.75,0.50, 0.10], len:0.30, w:0.09, curl:0.6, c:0 },
+    { p:[-0.85,1.60,-0.20], d:[-0.50,0.80,-0.10], len:0.26, w:0.08, curl:0.7, c:1 },
+    { p:[-2.60,0.75,-0.10], d:[-0.60,0.70, 0.00], len:0.36, w:0.10, curl:0.7, c:1 },
+    { p:[-1.60,1.70, 0.00], d:[-0.40,0.90, 0.10], len:0.30, w:0.09, curl:0.8, c:2 },
+    { p:[-2.20,1.60, 0.20], d:[-0.55,0.80, 0.10], len:0.24, w:0.08, curl:0.6, c:0 },
+    { p:[-1.05,0.15,-0.30], d:[-0.85,0.35, 0.00], len:0.20, w:0.07, curl:0.5, c:1 }
+  ];
+  DROPS.forEach(d => {
+    const pal = DROP_PAL[d.c];
+    addFlame({ p:d.p, dir:d.d, len:d.len, w:d.w, curl:d.curl, wave:0.09,
+               amp:0.06, speed:3.2 + rand(), coreMix:0.6,             // F8: seeded
+               base:pal.base, tip:pal.tip, core:pal.core });
+  });
+
+  /* ============================================================
+     4. Ambient embers + glow
+  ============================================================ */
+  const EMBER_COUNT = 130;
+  const eGeo = new THREE.BufferGeometry();
+  const seeds = new Float32Array(EMBER_COUNT);
+  const sizes = new Float32Array(EMBER_COUNT);
+  const dummy = new Float32Array(EMBER_COUNT * 3);
+  for (let i = 0; i < EMBER_COUNT; i++) {
+    seeds[i] = rand();                    // F8: deterministic
+    sizes[i] = 0.05 + rand() * 0.16;
+  }
+  eGeo.setAttribute('position', new THREE.BufferAttribute(dummy, 3));
+  eGeo.setAttribute('aSeed',    new THREE.BufferAttribute(seeds, 1));
+  eGeo.setAttribute('aSize',    new THREE.BufferAttribute(sizes, 1));
+  const eMat = new THREE.ShaderMaterial({
+    vertexShader: EMBER_VERT,
+    fragmentShader: EMBER_FRAG,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: { uTime: sharedTime, uPixelRatio: { value: renderer.getPixelRatio() } }
+  });
+  const embers = new THREE.Points(eGeo, eMat);
+  embers.frustumCulled = false;
+  character.add(embers);
+
+  function glowTexture(inner, mid) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+    grad.addColorStop(0, inner);
+    grad.addColorStop(0.4, mid);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 256, 256);
+    return new THREE.CanvasTexture(c);
+  }
+
+  /* warm halo hugging the silhouette (Patch H) */
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTexture('rgba(255,180,80,0.50)', 'rgba(255,110,20,0.20)'),
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,            // the body occludes the sprite center -> clean rim glow
+    blending: THREE.AdditiveBlending
+  }));
+  halo.scale.setScalar(6.0);
+  character.add(halo);
+
+  /* warm glow pool under the character — added to the SCENE so it never bobs (Patch H) */
+  const pool = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), new THREE.ShaderMaterial({
+    vertexShader: GLOW_VERT,
+    fragmentShader: GLOW_FRAG,
+    uniforms: { uTime: sharedTime },
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide      // F7: still renders if the camera dips below it
+  }));
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.y = -1.14;
+  scene.add(pool);
+
+  /* ============================================================
+     5. Resize / responsive framing  (F4 + F6, Patch E)
+  ============================================================ */
+  function onResize() {
+    const w = innerWidth, h = innerHeight, aspect = w / h;
+    camera.aspect = aspect;
+    /* keep the ~4.4-unit flame span in frame on portrait screens */
+    camera.fov = aspect >= 1 ? 42 : THREE.MathUtils.radToDeg(2 * Math.atan(0.39 / Math.max(aspect, 0.45)));
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    const pr = Math.min(devicePixelRatio || 1, 2);
+    renderer.setPixelRatio(pr);
+    eMat.uniforms.uPixelRatio.value = pr;    // embers keep correct point size (monitor switch / zoom)
+    bgUniforms.uRes.value.set(w, h);
+  }
+  addEventListener('resize', onResize);
+  onResize();
+
+  /* ============================================================
+     6. Animation loop  (F4 + F10, Patch H)
+  ============================================================ */
+  function blinkAmount(t) {                    // double-blink every ~3.6 s
+    const T = 3.6, d = 0.15, ph = (t + 2.0) % T;   // +2 s offset: no blink on the very first frames
+    let k = ph < d ? Math.sin((ph / d) * Math.PI) : 0;
+    const p2 = ph - 0.28;
+    if (p2 >= 0 && p2 < d) k = Math.max(k, Math.sin((p2 / d) * Math.PI));
+    return 1 - 0.94 * k;
+  }
+
+  const clock = new THREE.Clock();
+  const bobAmp = reduced ? 0.02 : 0.055;       // gentler float when reduced motion is preferred
+  renderer.setAnimationLoop(() => {
+    const t = clock.getElapsedTime();          // absolute time — tab-throttle pause/resume self-corrects
+    sharedTime.value = t % 3600;               // float32-safe sine horizon
+
+    character.position.y = Math.sin(t * 1.25) * bobAmp;      // idle float
+    character.rotation.z  = Math.sin(t * 0.80) * 0.018;
+    character.rotation.x  = Math.sin(t * 0.63 + 1.2) * 0.012;
+
+    const bs = blinkAmount(t);
+    eyeL.group.scale.y = eyeR.group.scale.y = bs;            // blink
+
+    const wx = Math.sin(t * 0.37) * 0.018, wy = Math.sin(t * 0.51 + 1.3) * 0.014;
+    eyeL.pupilGroup.position.set(wx, -0.035 + wy, 0.15);     // pupils wander
+    eyeR.pupilGroup.position.set(wx, -0.035 + wy, 0.15);
+
+    controls.update();   // REQUIRED — damping + autoRotate are dead without it
+    renderer.render(scene, camera);
+  });
+}
+
+try {
+  boot();
+  window.__BLAZE_BOOTED = true;
+  document.getElementById('fallback').style.display = 'none';  // clear a possible "still loading" note
+} catch (err) {
+  console.error(err);
+  if (window.showBootError)
+    showBootError(err && err.userMessage ? err.userMessage : 'The scene failed to start — see console for details.');
+}
+</script>
+</body>
+</html>

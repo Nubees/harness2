@@ -34,7 +34,12 @@
 - `start.bat`: General launcher (auto `.venv` provisioning, tests, checks, demo, activated shell).
 - `start_ollama.bat`: Full-featured launcher with interactive CLI chat (`scripts/harness_chat.py`), model detection, and task execution.
 - `start_google.bat`: Configured for Google Cloud Vertex AI (ADC credentials, project detection, Gemini 2.5 Flash).
+- `start_dashboard.bat`: Dedicated launcher for the live Dual-Shift Telemetry Dashboard (runs on `http://localhost:8765/dashboard`).
+- `scripts/telemetry_server.py`: Lightweight HTTP/SSE telemetry daemon broadcasting live task stages, model status, and knowledge sync stats.
 - `scripts/select_ollama_model.ps1`: Dynamic Ollama scanner categorizing local weights and cloud models (`glm-5.3-flash:cloud`, `deepseek-v4.1-flash:cloud`, `minimax-m3.1-flash:cloud`, `qwen3.8:27b-mtp-q4_K_M`, `qwen3-coder:480b-cloud`, `deepseek-v3.1:671b-cloud`, `kimi-k2.7-code:cloud`, `gpt-oss:120b-cloud`).
 - `scripts/harness_chat.py`: Interactive CLI chat with active harness rules and system prompt.
 
 ## Autonomous Lessons (Harness² Knowledge Base)
+- **[2026-10-26] (task_convert_the_reference_image_in_20261026_124724):** Build the character feature-by-feature rather than primitive-by-primitive: assign each visual element its own technique — emissive/gradient-shaded sphere body, glossy eye spheres with separate white highlight spheres, a torus-arc or tube mouth, multiple noise-displaced flame shells using additive blending with depthWrite:false, and Points-based rising ember particles — then drive all motion (flicker, float, particle drift) from a single clock-based update loop instead of static transforms.
+  - *When to apply:* When converting a stylized 2D character reference (e.g., a cute fireball with swept flame wisps, glossy eyes, and embers) into a procedural Three.js scene, and the first-pass model reads as flat, dull, or static compared to the image.
+  - *Evidence:* The base solution approximated the character with a plain lit sphere plus a few static cone flames, which lost the fire's self-illumination, layered swept-back silhouette, and sense of life; the composed solution's per-feature decomposition (shader-driven flame layers, specular eye highlights, additive embers, unified time-based flicker/float loop) reproduced the reference's glow, gloss, and continuous motion, yielding a result that visually matches the source and is genuinely production-ready.
