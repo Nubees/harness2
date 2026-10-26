@@ -33,9 +33,14 @@
     ::-webkit-scrollbar-thumb:hover { background: #475569; }
     .glass-panel { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(51, 65, 85, 0.6); }
     canvas { display: block; width: 100%; height: 100%; outline: none; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(6, 182, 212, 0.4); border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(6, 182, 212, 0.8); }
+    .custom-scrollbar { scrollbar-width: thin; scrollbar-color: rgba(6, 182, 212, 0.4) rgba(15, 23, 42, 0.6); }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans overflow-hidden select-none">
+<body class="bg-slate-950 text-slate-100 h-screen max-h-screen flex flex-col font-sans overflow-hidden select-none">
 
   <!-- Top App Navigation Bar -->
   <header class="h-14 border-b border-slate-800 bg-slate-900/90 backdrop-blur px-6 flex items-center justify-between z-30 shrink-0">
@@ -75,15 +80,15 @@
   </header>
 
   <!-- Main Split Layout -->
-  <main class="flex-1 flex overflow-hidden relative">
+  <main class="flex-1 flex min-h-0 overflow-hidden relative">
 
     <!-- Left Generator Control Panel -->
-    <aside class="w-[420px] border-r border-slate-800 bg-slate-900/60 flex flex-col z-20 shrink-0">
-      <div class="flex-1 overflow-y-auto p-5 space-y-5">
+    <aside class="w-[390px] border-r border-slate-800 bg-slate-900/60 flex flex-col z-20 shrink-0 h-full max-h-full overflow-hidden">
+      <div class="flex-1 overflow-y-auto p-4 space-y-3.5 custom-scrollbar">
 
         <!-- 1. Source Image Section -->
         <div>
-          <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center justify-between mb-1.5">
             <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">
               1. Reference Image
             </label>
@@ -91,27 +96,27 @@
           </div>
 
           <!-- A. Dropzone (shown when NO image is loaded) -->
-          <div id="dropzone" class="relative border-2 border-dashed border-slate-700 hover:border-cyan-500/60 rounded-2xl p-6 text-center cursor-pointer transition-all bg-slate-850/50 hover:bg-slate-800/50 group">
+          <div id="dropzone" class="relative border-2 border-dashed border-slate-700 hover:border-cyan-500/60 rounded-xl p-3.5 text-center cursor-pointer transition-all bg-slate-850/50 hover:bg-slate-800/50 group">
             <input type="file" id="file-input" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer z-10" />
-            <div id="dropzone-prompt" class="space-y-2 py-2">
-              <div class="w-12 h-12 mx-auto rounded-full bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-cyan-400 group-hover:scale-110 transition-all">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+            <div id="dropzone-prompt" class="space-y-1.5 py-1">
+              <div class="w-9 h-9 mx-auto rounded-full bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-cyan-400 group-hover:scale-110 transition-all">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
               </div>
-              <p class="text-xs text-slate-200 font-semibold">Drop reference image or click to browse</p>
-              <p class="text-[10px] text-slate-500 font-mono">PNG, JPEG, WebP (Character / Prop / Concept)</p>
+              <p class="text-xs text-slate-200 font-semibold">Drop image or click to browse</p>
+              <p class="text-[10px] text-slate-500 font-mono">PNG, JPEG, WebP</p>
             </div>
           </div>
 
           <!-- B. Active Image Preview Card (shown when an image IS loaded) -->
-          <div id="image-preview-card" class="hidden rounded-2xl overflow-hidden border border-cyan-500/40 bg-slate-950 p-2 shadow-xl space-y-2">
-            <div class="relative w-full rounded-xl overflow-hidden bg-slate-900 flex items-center justify-center" style="height: 220px; min-height: 220px;">
-              <img id="image-preview" src="" alt="Source preview" class="w-full h-full object-contain rounded-lg block" style="width: 100%; height: 100%; object-fit: contain;" />
-              <button id="remove-img-btn" class="absolute top-2 right-2 px-2.5 py-1 rounded-lg bg-slate-900/90 hover:bg-red-500/90 text-white text-[11px] font-mono transition-all z-20 flex items-center gap-1 shadow-lg border border-slate-700/80 cursor-pointer">
+          <div id="image-preview-card" class="hidden rounded-xl overflow-hidden border border-cyan-500/40 bg-slate-950 p-2 shadow-xl space-y-1.5">
+            <div class="relative w-full rounded-lg overflow-hidden bg-slate-900 flex items-center justify-center" style="height: 135px; min-height: 135px; max-height: 135px;">
+              <img id="image-preview" src="" alt="Source preview" class="w-full h-full object-contain rounded-md block" style="width: 100%; height: 100%; object-fit: contain;" />
+              <button id="remove-img-btn" class="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-md bg-slate-900/90 hover:bg-red-500/90 text-white text-[10px] font-mono transition-all z-20 flex items-center gap-1 shadow border border-slate-700/80 cursor-pointer">
                 <span>✕</span> Remove
               </button>
             </div>
-            <div class="flex items-center justify-between px-2 pb-1 text-[11px] font-mono">
-              <span id="preview-filename" class="text-cyan-300 font-semibold truncate max-w-[210px]">image.png</span>
+            <div class="flex items-center justify-between px-1.5 pb-0.5 text-[11px] font-mono">
+              <span id="preview-filename" class="text-cyan-300 font-semibold truncate max-w-[200px]">image.png</span>
               <button id="change-img-btn" class="text-[10px] text-slate-400 hover:text-cyan-400 underline cursor-pointer">Change Picture</button>
             </div>
           </div>
@@ -119,11 +124,11 @@
 
         <!-- 2. AI Model Selection -->
         <div>
-          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
             2. Autonomous Synthesis Model
           </label>
           <div class="relative">
-            <select id="model-select" class="w-full bg-slate-850 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500">
+            <select id="model-select" class="w-full bg-slate-850 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500">
               <option value="glm-5.3-flash:cloud" selected>glm-5.3-flash:cloud (Zero-Cost / LL3M Specialist)</option>
               <option value="kimi-k2.7-code:cloud">kimi-k2.7-code:cloud</option>
               <option value="gemma4:latest">gemma4:latest (Local on-device)</option>
@@ -133,7 +138,7 @@
 
         <!-- 3. Modeling Guidance Prompt -->
         <div>
-          <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center justify-between mb-1.5">
             <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">
               3. Stylistic & Anatomy Guidance
             </label>
@@ -142,8 +147,8 @@
               <span>AI Analyzing...</span>
             </span>
           </div>
-          <textarea id="prompt-input" rows="4" class="w-full bg-slate-850 border border-slate-700 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 resize-none font-mono" placeholder="Select an image above — AI vision will automatically generate tailored stylistic and anatomical guidance here. You can freely edit or customize it..."></textarea>
-          <div class="flex items-center justify-between mt-1 text-[10px] text-slate-500 font-mono">
+          <textarea id="prompt-input" rows="3" class="w-full bg-slate-850 border border-slate-700 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 resize-none font-mono" placeholder="Select an image above — AI vision will automatically generate tailored stylistic and anatomical guidance here. You can freely edit or customize it..."></textarea>
+          <div class="flex items-center justify-between mt-0.5 text-[10px] text-slate-500 font-mono">
             <span>✨ Auto-generated from image</span>
             <span class="text-slate-400">Editable before generation</span>
           </div>
@@ -151,7 +156,7 @@
 
         <!-- 4. Target Export Formats -->
         <div>
-          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
             4. Target Export Deliverables
           </label>
           <div class="grid grid-cols-2 gap-2 text-xs font-mono">
@@ -179,13 +184,13 @@
         </div>
 
         <!-- Action Button -->
-        <button id="generate-btn" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-xs tracking-wider uppercase transition-all shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+        <button id="generate-btn" class="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-xs tracking-wider uppercase transition-all shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
           <span id="btn-icon">⚡</span>
           <span id="btn-text">Generate 3D Model</span>
         </button>
 
         <!-- Progress Pipeline Stepper -->
-        <div id="progress-container" class="hidden space-y-3 p-4 rounded-xl bg-slate-850 border border-slate-700/80">
+        <div id="progress-container" class="hidden space-y-2.5 p-3 rounded-xl bg-slate-850 border border-slate-700/80">
           <div class="flex items-center justify-between text-xs">
             <span class="font-bold text-cyan-400 flex items-center gap-2">
               <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
@@ -209,11 +214,11 @@
 
         <!-- Live Terminal Stream Logs -->
         <div class="rounded-xl bg-slate-950 border border-slate-800 overflow-hidden">
-          <div class="px-3 py-1.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+          <div class="px-3 py-1 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-[10px] text-slate-400 font-mono">
             <span>Terminal Execution Stream</span>
             <span id="token-counter" class="text-cyan-400">Idle</span>
           </div>
-          <pre id="log-terminal" class="p-3 text-[11px] font-mono text-slate-400 h-28 overflow-y-auto whitespace-pre-wrap leading-relaxed">Ready. Select an image and click Generate.</pre>
+          <pre id="log-terminal" class="p-2.5 text-[11px] font-mono text-slate-400 h-20 overflow-y-auto whitespace-pre-wrap leading-relaxed">Ready. Select an image and click Generate.</pre>
         </div>
 
       </div>

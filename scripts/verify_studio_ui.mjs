@@ -109,6 +109,33 @@ async function run() {
   })()`);
   console.log("Initial state:", JSON.stringify(initialState, null, 2));
 
+  console.log("\n--- Checking Scrollable Layout & Dimensions ---");
+  const scrollMetrics = await evaluate(`(() => {
+    const aside = document.querySelector('aside');
+    const scrollContainer = aside?.querySelector('.custom-scrollbar');
+    const previewCard = document.getElementById('image-preview-card');
+    const dropzone = document.getElementById('dropzone');
+
+    // Test scrolling
+    const initialScrollTop = scrollContainer?.scrollTop || 0;
+    if (scrollContainer) {
+      scrollContainer.scrollTop = 100;
+    }
+    const scrolledTop = scrollContainer?.scrollTop || 0;
+
+    return {
+      windowInnerHeight: window.innerHeight,
+      windowInnerWidth: window.innerWidth,
+      asideHeight: aside?.offsetHeight,
+      containerClientHeight: scrollContainer?.clientHeight,
+      containerScrollHeight: scrollContainer?.scrollHeight,
+      canScroll: scrollContainer?.scrollHeight > scrollContainer?.clientHeight,
+      scrolledSuccessfully: scrolledTop > 0,
+      dropzoneHeight: dropzone?.offsetHeight
+    };
+  })()`);
+  console.log("Scroll & layout metrics:", JSON.stringify(scrollMetrics, null, 2));
+
   console.log("\n--- Testing SpaceMan Sample Button Click ---");
   await evaluate(`document.getElementById('load-spaceman-btn').click()`);
   await new Promise(r => setTimeout(r, 1000));
