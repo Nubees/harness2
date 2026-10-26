@@ -98,15 +98,23 @@ echo [6] Setup Benchmark (harness2-setup jb/lab/wb)
 echo [7] Switch / Rescan Ollama Model (Local and Cloud)
 echo [8] Run Local Deterministic Demo
 echo [D] Launch Live Dual-Shift Dashboard (Web UI at http://localhost:8765)
+echo [S] Launch Omni-3D Studio (Project #2 Image-to-3D App at http://localhost:8766)
 echo [9] Exit
 echo(
 set "choice=1"
-set /p choice="Enter choice [1-9, D, Default 1]: "
+set /p choice="Enter choice [1-9, D, S, Default 1]: "
 
 if /i "!choice!"=="D" (
     echo(
     echo Launching Dual-Shift Telemetry Dashboard in background...
     start "" start_dashboard.bat
+    echo(
+    goto menu
+)
+if /i "!choice!"=="S" (
+    echo(
+    echo Launching Omni-3D Studio in background...
+    start "" Project_no2_Image_to_3d_Model\start_app.bat
     echo(
     goto menu
 )

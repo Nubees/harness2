@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Omni-3D Studio · Image-to-3D Generation</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#ecfeff', 500: '#06b6d4', 600: '#0891b2', 700: '#0e7490' },
+            slate: { 850: '#111827', 950: '#030712' }
+          }
+        }
+      }
+    }
+  </script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <style>
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .glass-panel { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(51, 65, 85, 0.6); }
+    canvas { display: block; width: 100%; height: 100%; outline: none; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans overflow-hidden select-none">
+
+  <!-- Top App Navigation Bar -->
+  <header class="h-14 border-b border-slate-800 bg-slate-900/90 backdrop-blur px-6 flex items-center justify-between z-30 shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+        <span class="text-sm font-black text-white">3D</span>
+      </div>
+      <div>
+        <h1 class="text-sm font-bold tracking-wider text-slate-100 flex items-center gap-2">
+          OMNI-3D STUDIO
+          <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">Project #2</span>
+        </h1>
+        <p class="text-[11px] text-slate-400">Autonomous Image-to-3D Generator via LL3M & Blender 5.2 LTS</p>
+      </div>
+    </div>
+
+    <!-- System Status Badges -->
+    <div class="flex items-center gap-3">
+      <div class="hidden sm:flex items-center gap-2 px-3 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span class="text-slate-300 font-mono" id="blender-badge">Blender 5.2.1 LTS</span>
+      </div>
+      <div class="flex items-center gap-2 px-3 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs">
+        <span class="w-2 h-2 rounded-full bg-cyan-400" id="ollama-dot"></span>
+        <span class="text-slate-300 font-mono" id="ollama-badge">Ollama Active</span>
+      </div>
+      <a href="http://localhost:8765/dashboard" target="_blank" class="px-3 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-semibold transition-all flex items-center gap-1.5">
+        <span>⚡</span> Shift Dashboard
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Split Layout -->
+  <main class="flex-1 flex overflow-hidden relative">
+
+    <!-- Left Generator Control Panel -->
+    <aside class="w-[420px] border-r border-slate-800 bg-slate-900/60 flex flex-col z-20 shrink-0">
+      <div class="flex-1 overflow-y-auto p-5 space-y-5">
+
+        <!-- 1. Source Image Section -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 flex items-center justify-between">
+            <span>1. Reference Image</span>
+            <span class="text-[10px] text-cyan-400 cursor-pointer hover:underline" id="load-spaceman-btn">Load SpaceMan Sample</span>
+          </label>
+          <div id="dropzone" class="relative border-2 border-dashed border-slate-700 hover:border-cyan-500/60 rounded-2xl p-4 text-center cursor-pointer transition-all bg-slate-850/50 hover:bg-slate-800/50 group">
+            <input type="file" id="file-input" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer z-10" />
+            <div id="dropzone-prompt" class="space-y-2 py-4">
+              <div class="w-12 h-12 mx-auto rounded-full bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-cyan-400 group-hover:scale-110 transition-all">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+              </div>
+              <p class="text-xs text-slate-300 font-medium">Drop reference image or click to browse</p>
+              <p class="text-[10px] text-slate-500 font-mono">PNG, JPEG, WebP (2D Concept / Sprite / Photo)</p>
+            </div>
+            <div id="image-preview-container" class="hidden relative rounded-xl overflow-hidden max-h-48 bg-slate-950 flex items-center justify-center">
+              <img id="image-preview" src="" alt="Source preview" class="max-h-48 object-contain rounded-lg" />
+              <button id="remove-img-btn" class="absolute top-2 right-2 p-1 rounded-lg bg-slate-900/80 hover:bg-red-500/80 text-white text-xs transition-all z-20">✕</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. AI Model Selection -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+            2. Autonomous Synthesis Model
+          </label>
+          <div class="relative">
+            <select id="model-select" class="w-full bg-slate-850 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500">
+              <option value="glm-5.3-flash:cloud" selected>glm-5.3-flash:cloud (Zero-Cost / LL3M Specialist)</option>
+              <option value="kimi-k2.7-code:cloud">kimi-k2.7-code:cloud</option>
+              <option value="gemma4:latest">gemma4:latest (Local on-device)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 3. Modeling Guidance Prompt -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+            3. Stylistic & Anatomy Guidance
+          </label>
+          <textarea id="prompt-input" rows="3" class="w-full bg-slate-850 border border-slate-700 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 resize-none font-mono" placeholder="e.g., Stylized chibi cartoon alien astronaut, spherical clear helmet, orange suit with chest console, heavy boots, bevel all hard edges..."></textarea>
+        </div>
+
+        <!-- 4. Target Export Formats -->
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+            4. Target Export Deliverables
+          </label>
+          <div class="grid grid-cols-2 gap-2 text-xs font-mono">
+            <label class="flex items-center gap-2 p-2 rounded-lg bg-slate-850 border border-slate-700/80 cursor-pointer hover:border-cyan-500/50">
+              <input type="checkbox" id="fmt-glb" checked class="rounded border-slate-600 text-cyan-500 focus:ring-0" />
+              <span class="text-cyan-300">📦 .GLB</span>
+              <span class="text-[10px] text-slate-500 ml-auto">Web/PBR</span>
+            </label>
+            <label class="flex items-center gap-2 p-2 rounded-lg bg-slate-850 border border-slate-700/80 cursor-pointer hover:border-amber-500/50">
+              <input type="checkbox" id="fmt-obj" checked class="rounded border-slate-600 text-amber-500 focus:ring-0" />
+              <span class="text-amber-300">📐 .OBJ</span>
+              <span class="text-[10px] text-slate-500 ml-auto">CAD/DCC</span>
+            </label>
+            <label class="flex items-center gap-2 p-2 rounded-lg bg-slate-850 border border-slate-700/80 cursor-pointer hover:border-emerald-500/50">
+              <input type="checkbox" id="fmt-stl" checked class="rounded border-slate-600 text-emerald-500 focus:ring-0" />
+              <span class="text-emerald-300">🖨️ .STL</span>
+              <span class="text-[10px] text-slate-500 ml-auto">3D Print</span>
+            </label>
+            <label class="flex items-center gap-2 p-2 rounded-lg bg-slate-850 border border-slate-700/80 cursor-pointer hover:border-purple-500/50">
+              <input type="checkbox" id="fmt-fbx" checked class="rounded border-slate-600 text-purple-500 focus:ring-0" />
+              <span class="text-purple-300">🎮 .FBX</span>
+              <span class="text-[10px] text-slate-500 ml-auto">Engines</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Action Button -->
+        <button id="generate-btn" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-xs tracking-wider uppercase transition-all shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+          <span id="btn-icon">⚡</span>
+          <span id="btn-text">Generate 3D Model</span>
+        </button>
+
+        <!-- Progress Pipeline Stepper -->
+        <div id="progress-container" class="hidden space-y-3 p-4 rounded-xl bg-slate-850 border border-slate-700/80">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-bold text-cyan-400 flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+              <span id="current-stage-title">Synthesizing...</span>
+            </span>
+            <span class="font-mono text-slate-400 text-[11px]" id="elapsed-timer">00:00</span>
+          </div>
+
+          <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+            <div id="progress-bar" class="bg-gradient-to-r from-cyan-500 to-blue-500 h-1.5 rounded-full transition-all duration-300" style="width: 20%"></div>
+          </div>
+
+          <!-- Step Indicators -->
+          <div class="grid grid-cols-4 gap-1 text-[10px] font-mono text-center pt-1">
+            <div id="step-1" class="text-cyan-400 font-semibold">1. Vision</div>
+            <div id="step-2" class="text-slate-500">2. LL3M Code</div>
+            <div id="step-3" class="text-slate-500">3. Blender</div>
+            <div id="step-4" class="text-slate-500">4. Exports</div>
+          </div>
+        </div>
+
+        <!-- Live Terminal Stream Logs -->
+        <div class="rounded-xl bg-slate-950 border border-slate-800 overflow-hidden">
+          <div class="px-3 py-1.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+            <span>Terminal Execution Stream</span>
+            <span id="token-counter" class="text-cyan-400">Idle</span>
+          </div>
+          <pre id="log-terminal" class="p-3 text-[11px] font-mono text-slate-400 h-28 overflow-y-auto whitespace-pre-wrap leading-relaxed">Ready. Select an image and click Generate.</pre>
+        </div>
+
+      </div>
+    </aside>
+
+    <!-- Right 3D Interactive Viewport -->
+    <div class="flex-1 relative bg-radial-dark flex flex-col">
+      <!-- 3D Canvas -->
+      <div id="viewport" class="flex-1 relative overflow-hidden">
+        <canvas id="three-canvas"></canvas>
+
+        <!-- Viewport Floating Toolbar (Top Right) -->
+        <div class="absolute top-4 right-4 z-10 flex items-center gap-2">
+          <button id="toggle-wireframe" class="p-2 rounded-xl glass-panel text-slate-300 hover:text-cyan-400 text-xs font-mono transition-all" title="Toggle Wireframe">
+            🌐 Wire
+          </button>
+          <button id="toggle-autorotate" class="p-2 rounded-xl glass-panel text-cyan-400 text-xs font-mono transition-all" title="Toggle Auto-Rotate">
+            🔄 Auto
+          </button>
+          <button id="reset-cam" class="p-2 rounded-xl glass-panel text-slate-300 hover:text-cyan-400 text-xs font-mono transition-all" title="Reset Camera">
+            🎯 Reset
+          </button>
+        </div>
+
+        <!-- Viewport Floating Metrics Badge (Top Left) -->
+        <div class="absolute top-4 left-4 z-10 glass-panel rounded-2xl p-3.5 space-y-1 text-xs font-mono pointer-events-none">
+          <div class="text-[10px] text-slate-400 uppercase tracking-wider font-sans">Active Asset Inspector</div>
+          <div class="text-sm font-bold text-cyan-300" id="asset-name">SpaceMan Alien Astronaut</div>
+          <div class="flex items-center gap-4 text-slate-300 text-[11px] pt-1">
+            <span>Faces: <strong class="text-slate-100" id="metric-faces">30,748</strong></span>
+            <span>Objects: <strong class="text-slate-100" id="metric-objects">74</strong></span>
+            <span>Scale: <strong class="text-slate-100">3.54m (Z)</strong></span>
+          </div>
+        </div>
+
+        <!-- Orbit Instruction Hint -->
+        <div class="absolute bottom-20 left-1/2 -translate-x-1/2 text-[11px] font-mono tracking-widest text-slate-500 pointer-events-none uppercase">
+          Drag to Orbit · Scroll to Zoom · Right-Click to Pan
+        </div>
+
+        <!-- Bottom Format Download Bar -->
+        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 glass-panel rounded-2xl p-2.5 shadow-2xl flex items-center gap-2.5 max-w-full overflow-x-auto">
+          <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-2 hidden md:block">
+            Download Asset:
+          </div>
+          <a id="btn-dl-glb" href="/files/exports/spaceman.glb" download="spaceman.glb" class="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 shadow-lg shadow-cyan-500/10">
+            <span>📦</span> .GLB
+          </a>
+          <a id="btn-dl-obj" href="/files/exports/spaceman.obj" download="spaceman.obj" class="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 shadow-lg shadow-amber-500/10">
+            <span>📐</span> .OBJ
+          </a>
+          <a id="btn-dl-stl" href="/files/exports/spaceman.stl" download="spaceman.stl" class="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 shadow-lg shadow-emerald-500/10">
+            <span>🖨️</span> .STL
+          </a>
+          <a id="btn-dl-fbx" href="/files/exports/spaceman.fbx" download="spaceman.fbx" class="px-3 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/40 text-purple-300 font-mono text-xs font-semibold transition-all flex items-center gap-1.5 shadow-lg shadow-purple-500/10">
+            <span>🎮</span> .FBX
+          </a>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+    // -------------------------------------------------------------
+    // Three.js Interactive Stage Initialization
+    // -------------------------------------------------------------
+    const canvas = document.getElementById('three-canvas');
+    const container = document.getElementById('viewport');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.25;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(40, container.clientWidth / container.clientHeight, 0.1, 50);
+    camera.position.set(0, 1.2, 4.4);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.target.set(0, 0.9, 0);
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 1.0;
+
+    // Lighting Environment
+    const amb = new THREE.AmbientLight(0xffffff, 0.9);
+    scene.add(amb);
+    const key = new THREE.DirectionalLight(0xfff5ea, 1.8);
+    key.position.set(3, 5, 4);
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0x7dd3fc, 1.2);
+    fill.position.set(-4, 2, -2);
+    scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xfb923c, 1.0);
+    rim.position.set(0, 4, -4);
+    scene.add(rim);
+
+    // Grid Floor
+    const grid = new THREE.GridHelper(6, 20, 0x38bdf8, 0x1e293b);
+    grid.position.y = -0.01;
+    scene.add(grid);
+
+    let activeModel = null;
+    let isWireframe = false;
+
+    function resize() {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    export function loadGLB(url, name = "Model") {
+      const loader = new GLTFLoader();
+      loader.load(url, (gltf) => {
+        if (activeModel) scene.remove(activeModel);
+        activeModel = gltf.scene;
+
+        // Auto center and normalize bounding box scale
+        const box = new THREE.Box3().setFromObject(activeModel);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scale = 2.0 / (maxDim || 1);
+        activeModel.scale.setScalar(scale);
+        activeModel.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+
+        scene.add(activeModel);
+        controls.target.set(0, 1.0, 0);
+        document.getElementById('asset-name').textContent = name;
+      }, undefined, (err) => {
+        console.error("GLTF load failed:", err);
+      });
+    }
+
+    // Load initial SpaceMan baseline asset
+    loadGLB('/files/exports/spaceman.glb', 'SpaceMan Alien Astronaut');
+
+    // Viewport controls
+    document.getElementById('toggle-wireframe').addEventListener('click', () => {
+      isWireframe = !isWireframe;
+      if (activeModel) {
+        activeModel.traverse((child) => {
+          if (child.isMesh && child.material) {
+            child.material.wireframe = isWireframe;
+          }
+        });
+      }
+    });
+
+    document.getElementById('toggle-autorotate').addEventListener('click', (e) => {
+      controls.autoRotate = !controls.autoRotate;
+      e.target.classList.toggle('text-cyan-400');
+      e.target.classList.toggle('text-slate-400');
+    });
+
+    document.getElementById('reset-cam').addEventListener('click', () => {
+      camera.position.set(0, 1.2, 4.4);
+      controls.target.set(0, 0.9, 0);
+    });
+
+    // -------------------------------------------------------------
+    // App State & REST / SSE Pipeline Handling
+    // -------------------------------------------------------------
+    let currentImageFile = null;
+    let currentImagePath = "spaceman.png";
+    let timerInterval = null;
+    let startTime = 0;
+
+    // Load sample SpaceMan
+    document.getElementById('load-spaceman-btn').addEventListener('click', () => {
+      currentImagePath = "spaceman.png";
+      currentImageFile = null;
+      document.getElementById('dropzone-prompt').classList.add('hidden');
+      document.getElementById('image-preview-container').classList.remove('hidden');
+      document.getElementById('image-preview').src = "/files/spaceman.png";
+      document.getElementById('prompt-input').value = "Retro chibi alien astronaut with orange jumpsuit, cyan sphere helmet, clear glass visor, and alien head inside.";
+    });
+
+    // File input handler
+    const fileInput = document.getElementById('file-input');
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      currentImageFile = file;
+      currentImagePath = null;
+      const reader = new FileReader();
+      reader.onload = (re) => {
+        document.getElementById('dropzone-prompt').classList.add('hidden');
+        document.getElementById('image-preview-container').classList.remove('hidden');
+        document.getElementById('image-preview').src = re.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    document.getElementById('remove-img-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      currentImageFile = null;
+      currentImagePath = null;
+      document.getElementById('image-preview').src = "";
+      document.getElementById('dropzone-prompt').classList.remove('hidden');
+      document.getElementById('image-preview-container').classList.add('hidden');
+      fileInput.value = "";
+    });
+
+    // Fetch dynamic models list from backend
+    async function loadModels() {
+      try {
+        const res = await fetch('/api/models');
+        const data = await res.json();
+        if (data.models && data.models.length > 0) {
+          const select = document.getElementById('model-select');
+          select.innerHTML = "";
+          data.models.forEach((m) => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m + (m.includes('glm-5.3') ? ' (Recommended)' : '');
+            if (m.includes('glm-5.3')) opt.selected = true;
+            select.appendChild(opt);
+          });
+        }
+      } catch (e) {
+        console.warn("Could not load models list:", e);
+      }
+    }
+    loadModels();
+
+    // Trigger Generation
+    const genBtn = document.getElementById('generate-btn');
+    const term = document.getElementById('log-terminal');
+
+    function log(msg) {
+      term.textContent += `\n${msg}`;
+      term.scrollTop = term.scrollHeight;
+    }
+
+    genBtn.addEventListener('click', async () => {
+      const model = document.getElementById('model-select').value;
+      const prompt = document.getElementById('prompt-input').value;
+      const formats = [];
+      if (document.getElementById('fmt-glb').checked) formats.push('glb');
+      if (document.getElementById('fmt-obj').checked) formats.push('obj');
+      if (document.getElementById('fmt-stl').checked) formats.push('stl');
+      if (document.getElementById('fmt-fbx').checked) formats.push('fbx');
+
+      // Upload image first if custom file
+      let imageParam = currentImagePath;
+      if (currentImageFile) {
+        log("Uploading reference image to server...");
+        const fd = new FormData();
+        fd.append('image', currentImageFile);
+        const upRes = await fetch('/api/upload', { method: 'POST', body: fd });
+        const upData = await upRes.json();
+        imageParam = upData.filepath;
+      }
+
+      if (!imageParam) {
+        alert("Please drop or select a reference image first!");
+        return;
+      }
+
+      // UI state -> running
+      genBtn.disabled = true;
+      document.getElementById('btn-icon').textContent = '⏳';
+      document.getElementById('btn-text').textContent = 'Synthesizing 3D Model...';
+      document.getElementById('progress-container').classList.remove('hidden');
+      startTime = Date.now();
+      timerInterval = setInterval(() => {
+        const sec = Math.floor((Date.now() - startTime) / 1000);
+        const m = String(Math.floor(sec / 60)).padStart(2, '0');
+        const s = String(sec % 60).padStart(2, '0');
+        document.getElementById('elapsed-timer').textContent = `${m}:${s}`;
+      }, 1000);
+
+      log(`[Omni-3D] Launching pipeline with model: ${model}`);
+
+      // Start job
+      try {
+        const jobRes = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: jsonString({ image: imageParam, model, prompt, formats })
+        });
+        const job = await jobRes.json();
+        if (job.error) throw new Error(job.error);
+
+        // Connect to SSE stream
+        const sse = new EventSource(`/api/jobs/${job.job_id}/events`);
+        sse.onmessage = (ev) => {
+          const evt = JSON.parse(ev.data);
+          if (evt.stage) updateStage(evt.stage, evt.stage_name);
+          if (evt.message) log(`[${evt.stage_name || 'LOG'}] ${evt.message}`);
+
+          if (evt.type === 'token_chunk') {
+            document.getElementById('token-counter').textContent = `${evt.content_chars} chars`;
+          }
+
+          if (evt.stage === 5 || evt.stage_name === 'Complete') {
+            sse.close();
+            clearInterval(timerInterval);
+            genBtn.disabled = false;
+            document.getElementById('btn-icon').textContent = '⚡';
+            document.getElementById('btn-text').textContent = 'Generate 3D Model';
+            log("Pipeline completed successfully!");
+
+            // Update viewer with newly generated GLB
+            if (evt.deliverables && evt.deliverables.glb) {
+              const glbUrl = `/files/jobs/${job.job_id}/exports/${evt.deliverables.glb.filename}`;
+              loadGLB(glbUrl, "Generated Asset");
+              document.getElementById('btn-dl-glb').href = glbUrl;
+              document.getElementById('btn-dl-glb').download = evt.deliverables.glb.filename;
+            }
+            if (evt.deliverables && evt.deliverables.obj) {
+              document.getElementById('btn-dl-obj').href = `/files/jobs/${job.job_id}/exports/${evt.deliverables.obj.filename}`;
+            }
+            if (evt.deliverables && evt.deliverables.stl) {
+              document.getElementById('btn-dl-stl').href = `/files/jobs/${job.job_id}/exports/${evt.deliverables.stl.filename}`;
+            }
+            if (evt.deliverables && evt.deliverables.fbx) {
+              document.getElementById('btn-dl-fbx').href = `/files/jobs/${job.job_id}/exports/${evt.deliverables.fbx.filename}`;
+            }
+          }
+        };
+
+        sse.onerror = (err) => {
+          console.warn("SSE stream closed/ended");
+          sse.close();
+        };
+
+      } catch (err) {
+        log(`[ERROR] ${err.message}`);
+        clearInterval(timerInterval);
+        genBtn.disabled = false;
+        document.getElementById('btn-icon').textContent = '⚡';
+        document.getElementById('btn-text').textContent = 'Generate 3D Model';
+      }
+    });
+
+    function jsonString(o) { return JSON.stringify(o); }
+
+    function updateStage(stg, name) {
+      document.getElementById('current-stage-title').textContent = name || 'Working...';
+      const pct = Math.min(100, stg * 25);
+      document.getElementById('progress-bar').style.width = `${pct}%`;
+      for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById(`step-${i}`);
+        if (i <= stg) {
+          el.className = 'text-cyan-400 font-semibold';
+        } else {
+          el.className = 'text-slate-500';
+        }
+      }
+    }
+  </script>
+</body>
+</html>
