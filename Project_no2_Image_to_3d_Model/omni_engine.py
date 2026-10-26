@@ -179,7 +179,8 @@ HELPER_DEFINITIONS = {
     for i, (pt, r) in enumerate(zip(control_points, radii)):
         bp = spline.bezier_points[i]
         bp.co = Vector(pt) if not isinstance(pt, Vector) else pt
-        bp.radius = r
+        # Clamp minimum radius to prevent OpenVDB sub-voxel fragmentation (floating dust)
+        bp.radius = max(0.18, float(r))
         bp.handle_left_type = 'AUTO'
         bp.handle_right_type = 'AUTO'
     obj = bpy.data.objects.new(name, curve_data)
@@ -240,28 +241,37 @@ HELPER_DEFINITIONS = {
     bpy.context.view_layer.objects.active = target_obj
     bpy.ops.object.modifier_apply(modifier=disp.name)
 ''',
-    "add_nested_eye": '''def add_nested_eye(name, loc, radius, iris_mat, pupil_mat=None, hi_mat=None):
+    "add_nested_eye": '''def add_nested_eye(name, loc, radius, iris_mat, pupil_mat=None, hi_mat=None, fwd=(0, -1, 0)):
     parts = []
+    fwd_vec = Vector(fwd).normalized()
+    up_vec = Vector((0, 0, 1))
+    right_vec = fwd_vec.cross(up_vec).normalized()
+    if right_vec.length < 0.1:
+        right_vec = Vector((1, 0, 0))
+
     bpy.ops.mesh.primitive_uv_sphere_add(segments=24, ring_count=16, radius=radius, location=loc)
     iris = bpy.context.active_object
     iris.name = f"{name}_Iris"
-    iris.scale = (0.45, 1.0, 1.0)
+    # Flatten depth-wise along character forward gaze axis (-Y)
+    iris.scale = (1.0, 0.45, 1.0)
     bpy.ops.object.transform_apply(scale=True)
     bpy.ops.object.shade_smooth()
     if iris_mat: iris.data.materials.append(iris_mat)
     parts.append(iris)
+
     if pupil_mat:
-        p_loc = Vector(loc) + Vector((radius * 0.25, 0, 0))
+        p_loc = Vector(loc) + fwd_vec * (radius * 0.15)
         bpy.ops.mesh.primitive_uv_sphere_add(segments=20, ring_count=12, radius=radius * 0.55, location=p_loc)
         pupil = bpy.context.active_object
         pupil.name = f"{name}_Pupil"
-        pupil.scale = (0.35, 1.0, 1.0)
+        pupil.scale = (1.0, 0.35, 1.0)
         bpy.ops.object.transform_apply(scale=True)
         bpy.ops.object.shade_smooth()
         pupil.data.materials.append(pupil_mat)
         parts.append(pupil)
+
     if hi_mat:
-        h_loc = Vector(loc) + Vector((radius * 0.40, radius * 0.22, radius * 0.32))
+        h_loc = Vector(loc) + fwd_vec * (radius * 0.28) + right_vec * (radius * 0.25) + up_vec * (radius * 0.28)
         bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=radius * 0.22, location=h_loc)
         hi = bpy.context.active_object
         hi.name = f"{name}_Highlight"
@@ -283,6 +293,8 @@ HELPER_DEFINITIONS = {
             except Exception:
                 obj.modifiers.remove(mod)
         bpy.ops.object.select_all(action='DESELECT')
+    # Explicitly select all mesh objects before calling exporters to avoid selection-state dependencies
+    bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.gltf(filepath=str(exports_dir / f"{base_name}.glb"), export_format='GLB', export_apply=True)
     bpy.ops.wm.obj_export(filepath=str(exports_dir / f"{base_name}.obj"))
     bpy.ops.wm.stl_export(filepath=str(exports_dir / f"{base_name}.stl"))
@@ -453,6 +465,8 @@ class Omni3DEngine:
      `apply_procedural_relief(target_obj=body, tex_type='CLOUDS', noise_scale=0.20, strength=0.015)`
 
    STAGE 5: HIGH-FIDELITY PBR SHADING & MULTI-FORMAT EXPORTS:
+   - Note on Materials: Objects joined into `body` via `fuse_objects_voxel_remesh` become ONE single unified body mesh datablock. Assign the primary body material directly: `body.data.materials.append(body_mat)`.
+   - Any elements requiring distinct materials (nested eyes, pupils, highlights, floating embers, visors) must be created or parented AFTER voxel remeshing so their materials remain distinct.
    - Create multi-layer PBR materials:
      `mat = make_organic_pbr_material(name, base_hex="#FF6B1A", roughness=0.35, sss_weight=0.3, rim_hex="#FFAA33", rim_strength=2.0)`
    - Assign materials to parts, then call:
