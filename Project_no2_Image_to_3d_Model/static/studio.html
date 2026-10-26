@@ -784,25 +784,31 @@
             log("Pipeline completed successfully!");
 
             // Update viewer with newly generated GLB & un-dim download buttons
-            ['btn-dl-glb', 'btn-dl-obj', 'btn-dl-stl', 'btn-dl-fbx'].forEach(id => {
-              const el = document.getElementById(id);
-              el.classList.remove('opacity-40', 'pointer-events-none');
-            });
-
             if (evt.deliverables && evt.deliverables.glb) {
               const glbUrl = `/files/jobs/${job.job_id}/exports/${evt.deliverables.glb.filename}`;
               loadGLB(glbUrl, "Generated Asset");
-              document.getElementById('btn-dl-glb').href = glbUrl;
-              document.getElementById('btn-dl-glb').download = evt.deliverables.glb.filename;
+              const btn = document.getElementById('btn-dl-glb');
+              btn.href = glbUrl;
+              btn.download = evt.deliverables.glb.filename;
+              btn.classList.remove('opacity-40', 'pointer-events-none');
+            } else {
+              log("[Warning] No .glb model found in deliverables.");
             }
+
             if (evt.deliverables && evt.deliverables.obj) {
-              document.getElementById('btn-dl-obj').href = `/files/jobs/${job.job_id}/exports/${evt.deliverables.obj.filename}`;
+              const btn = document.getElementById('btn-dl-obj');
+              btn.href = `/files/jobs/${job.job_id}/exports/${evt.deliverables.obj.filename}`;
+              btn.classList.remove('opacity-40', 'pointer-events-none');
             }
             if (evt.deliverables && evt.deliverables.stl) {
-              document.getElementById('btn-dl-stl').href = `/files/jobs/${job.job_id}/exports/${evt.deliverables.stl.filename}`;
+              const btn = document.getElementById('btn-dl-stl');
+              btn.href = `/files/jobs/${job.job_id}/exports/${evt.deliverables.stl.filename}`;
+              btn.classList.remove('opacity-40', 'pointer-events-none');
             }
             if (evt.deliverables && evt.deliverables.fbx) {
-              document.getElementById('btn-dl-fbx').href = `/files/jobs/${job.job_id}/exports/${evt.deliverables.fbx.filename}`;
+              const btn = document.getElementById('btn-dl-fbx');
+              btn.href = `/files/jobs/${job.job_id}/exports/${evt.deliverables.fbx.filename}`;
+              btn.classList.remove('opacity-40', 'pointer-events-none');
             }
           }
         };

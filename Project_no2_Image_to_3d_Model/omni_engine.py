@@ -70,6 +70,45 @@ def encode_image(image_path: Path, max_dim: int = 448) -> tuple[str, str]:
         return b64, mime
 
 
+def extract_blender_script(llm_output: str) -> str:
+    """Robustly extract the primary, complete Blender Python script from LLM output.
+
+    Handles:
+    - Multiple code blocks (filters and picks the complete script containing 'import bpy' and exporters)
+    - Unclosed code blocks (where LLM hit token budget or stream finished before closing ```)
+    - Direct python scripts without markdown fences
+    """
+    if not llm_output or not llm_output.strip():
+        return ""
+
+    # 1. Find all closed markdown code blocks
+    code_blocks = re.findall(r"```(?:python|py)?\s*\n(.*?)```", llm_output, re.DOTALL)
+    if code_blocks:
+        # Prefer blocks containing import bpy or bpy.
+        bpy_blocks = [b.strip() for b in code_blocks if "import bpy" in b or "bpy." in b]
+        if bpy_blocks:
+            full_scripts = [b for b in bpy_blocks if "import bpy" in b]
+            if full_scripts:
+                # Return the longest complete script
+                return max(full_scripts, key=len)
+            return max(bpy_blocks, key=len)
+        return max(code_blocks, key=len).strip()
+
+    # 2. Check for unclosed code block (e.g. ```python ... EOF)
+    unclosed = re.search(r"```(?:python|py)?\s*\n(.*)$", llm_output, re.DOTALL)
+    if unclosed:
+        code = unclosed.group(1).strip()
+        if "bpy" in code or len(code) > 80:
+            return code
+
+    # 3. Fallback: search for 'import bpy'
+    if "import bpy" in llm_output:
+        idx = llm_output.find("import bpy")
+        return llm_output[idx:].strip()
+
+    return llm_output.strip()
+
+
 class Omni3DEngine:
     """Core synthesis and orchestration engine for Image-to-3D generation."""
 
@@ -139,11 +178,8 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
 
 4. MULTI-FORMAT EXPORT PROTOCOL:
    Resolve exports directory relative to script:
-   ```python
-   from pathlib import Path
    exports_dir = Path(__file__).resolve().parent / "exports"
    exports_dir.mkdir(parents=True, exist_ok=True)
-   ```
    Apply all modifiers before export so all formats share identical geometry.
    Execute required exporters:
    - GLB: bpy.ops.export_scene.gltf(filepath=str(exports_dir / "model.glb"), export_format="GLB", export_apply=True)
@@ -151,9 +187,10 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
    - STL: bpy.ops.wm.stl_export(filepath=str(exports_dir / "model.stl"))
    - FBX: bpy.ops.export_scene.fbx(filepath=str(exports_dir / "model.fbx"))
 
-5. OUTPUT FORMAT:
-   Return the complete, self-contained Python script wrapped in a single ```python ... ``` code block.
-   Print "MODEL_BUILD_OK" to stdout at the end of the script."""
+5. STRICT OUTPUT FORMAT (CRITICAL):
+   - Output EXACTLY ONE single Python code block enclosed in ```python ... ```.
+   - Do NOT output any preliminary snippets, multiple code blocks, or markdown explanations.
+   - The script must be completely self-contained from `import bpy` to export and `print("MODEL_BUILD_OK")`."""
         return prompt
 
     def stream_ollama_chat(
@@ -161,7 +198,7 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
         prompt: str,
         image_path: Path | None = None,
         model: str = "glm-5.3-flash:cloud",
-        timeout: int = 300,
+        timeout: int = 600,
     ) -> Generator[dict, None, str]:
         """Stream chat tokens from Ollama /api/chat yielding progress events."""
         url = f"{self.ollama_url}/api/chat"
@@ -179,7 +216,11 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
             "model": model,
             "messages": messages,
             "stream": True,
-            "options": {"temperature": 0.2},
+            "options": {
+                "temperature": 0.2,
+                "num_ctx": 16384,
+                "num_predict": 8192,
+            },
         }).encode("utf-8")
 
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
@@ -232,7 +273,9 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
         elapsed = round(time.time() - t0, 2)
 
-        is_success = ("MODEL_BUILD_OK" in res.stdout or "SPACEMAN_BUILD_OK" in res.stdout or res.returncode == 0)
+        has_traceback = ("Traceback (most recent call last):" in res.stdout or "Error: Python:" in res.stdout)
+        has_build_ok = ("MODEL_BUILD_OK" in res.stdout or "SPACEMAN_BUILD_OK" in res.stdout)
+        is_success = (res.returncode == 0 and not has_traceback) or has_build_ok
         return {
             "success": is_success,
             "returncode": res.returncode,
@@ -286,9 +329,21 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
         except StopIteration as stop:
             synthesized_code = stop.value
 
-        # Extract python code
-        m = re.search(r"```(?:python|py)?\s*\n(.*?)```", synthesized_code, re.DOTALL)
-        python_script = m.group(1).strip() if m else synthesized_code
+        # Persist full raw LLM response for auditability & debugging
+        (job_dir / "raw_llm_response.txt").write_text(synthesized_code, encoding="utf-8")
+
+        # Robustly extract the full Blender Python script (handles multiple blocks & unclosed blocks)
+        python_script = extract_blender_script(synthesized_code)
+        if not python_script:
+            report(2, "Failed", "LLM did not return any Blender Python modeling code.")
+            raise RuntimeError("No Python modeling script found in LLM response.")
+
+        # Ensure fundamental imports are present
+        if "import bpy" not in python_script:
+            python_script = "import bpy\nimport math\nfrom pathlib import Path\n" + python_script
+
+        # Strip deprecated Blender 3.x syntax that crashes Blender 5.x
+        python_script = re.sub(r'[\w\.]+\.use_auto_smooth\s*=\s*\w+', '# use_auto_smooth deprecated in Blender 5.x', python_script)
 
         # Ensure correct exports target directory in script using posix forward slashes
         exports_posix = exports_dir.resolve().as_posix()
@@ -313,8 +368,10 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
         (job_dir / "blender_build.log").write_text(build_result["output"], encoding="utf-8")
 
         if not build_result["success"]:
-            report(3, "Failed", f"Blender exited with code {build_result['returncode']}", {"log": build_result["output"][-1000:]})
-            raise RuntimeError(f"Blender compilation failed: {build_result['output'][-500:]}")
+            err_lines = [l for l in build_result["output"].splitlines() if "Error" in l or "Traceback" in l or "File " in l]
+            summary = "\n".join(err_lines[-5:]) if err_lines else build_result["output"][-400:]
+            report(3, "Failed", f"Blender compilation failed:\n{summary}", {"log": build_result["output"][-1000:]})
+            raise RuntimeError(f"Blender script execution failed:\n{summary}")
 
         # Stage 4: Deliverables Verification
         report(4, "Deliverables", "Verifying export files and metadata...")
@@ -329,6 +386,12 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
                     "size_bytes": f.stat().st_size,
                     "size_display": f"{round(f.stat().st_size / 1024, 1)} KB",
                 }
+
+        # Crucial gate: If no files were exported, the generation was NOT successful
+        if not deliverables or ("glb" in formats and "glb" not in deliverables):
+            err_msg = "Blender execution finished but failed to create export files (no .glb found in exports/)."
+            report(4, "Failed", err_msg, {"log": build_result["output"][-1000:]})
+            raise RuntimeError(err_msg)
 
         preview_img = exports_dir / "preview.png"
         preview_url = f"/files/jobs/{job_dir.name}/exports/{preview_img.name}" if preview_img.is_file() else None
