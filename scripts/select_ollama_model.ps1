@@ -18,7 +18,7 @@ $cloudModels = @()
 $localModels = @()
 
 foreach ($m in $allModels) {
-    if ($m.name -match ":cloud$" -or $m.size -lt 1000) {
+    if ($m.name -match "(:cloud|-cloud)$" -or $m.size -lt 1000) {
         $cloudModels += $m
     } else {
         $localModels += $m
@@ -26,6 +26,10 @@ foreach ($m in $allModels) {
 }
 
 $recommendedLibraryModels = @(
+    "glm-5.3-flash:cloud",
+    "deepseek-v4.1-flash:cloud",
+    "minimax-m3.1-flash:cloud",
+    "qwen3.8:27b-mtp-q4_K_M",
     "qwen3-coder:480b-cloud",
     "deepseek-v3.1:671b-cloud",
     "gpt-oss:120b-cloud",
@@ -54,7 +58,7 @@ $menuMap = @{}
 if ($cloudModels.Count -gt 0) {
     Write-Host "`n--- CLOUD MODELS (Configured in Ollama) ---" -ForegroundColor Cyan
     foreach ($m in $cloudModels) {
-        Write-Host ("  [{0}] {1}" -f $index, $m.name) -ForegroundColor White
+        Write-Host ("  [{0,2}] {1}" -f $index, $m.name) -ForegroundColor White
         $menuMap[$index] = @{ Name = $m.name; IsInstalled = $true }
         $index++
     }
@@ -64,16 +68,20 @@ if ($localModels.Count -gt 0) {
     Write-Host "`n--- LOCAL ON-DEVICE MODELS ---" -ForegroundColor Cyan
     foreach ($m in $localModels) {
         $gb = [math]::Round($m.size / 1GB, 2)
-        Write-Host ("  [{0}] {1,-24} ({2} GB)" -f $index, $m.name, $gb) -ForegroundColor White
+        Write-Host ("  [{0,2}] {1,-30} ({2} GB)" -f $index, $m.name, $gb) -ForegroundColor White
         $menuMap[$index] = @{ Name = $m.name; IsInstalled = $true }
         $index++
     }
 }
 
 if ($recommendedToPull.Count -gt 0) {
-    Write-Host "`n--- AVAILABLE TO PULL (Ollama Cloud Library) ---" -ForegroundColor Yellow
+    Write-Host "`n--- RECOMMENDED CLOUD & LIBRARY MODELS ---" -ForegroundColor Yellow
     foreach ($rec in $recommendedToPull) {
-        Write-Host ("  [{0}] {1,-24} [Requires download]" -f $index, $rec) -ForegroundColor Gray
+        if ($rec -match "(:cloud|-cloud)$") {
+            Write-Host ("  [{0,2}] {1,-30} [Cloud Model]" -f $index, $rec) -ForegroundColor Cyan
+        } else {
+            Write-Host ("  [{0,2}] {1,-30} [Local Library]" -f $index, $rec) -ForegroundColor Gray
+        }
         $menuMap[$index] = @{ Name = $rec; IsInstalled = $false }
         $index++
     }
@@ -106,14 +114,23 @@ if ([string]::IsNullOrWhiteSpace($selection)) {
     $selectedModel = $menuMap[$choiceNum].Name
     $isInstalled = $menuMap[$choiceNum].IsInstalled
 } else {
-    $selectedModel = $selection.Trim()
+    $cleanInput = $selection.Trim()
+    if ($cleanInput -match "^(?:--)?model\s+(.+)$") {
+        $cleanInput = $matches[1].Trim()
+    }
+    $selectedModel = $cleanInput
     $installedMatch = $allModels | Where-Object { $_.name -eq $selectedModel }
     $isInstalled = [bool]$installedMatch
 }
 
 if (-not $isInstalled) {
-    Write-Host "`nModel '$selectedModel' is not downloaded yet." -ForegroundColor Yellow
-    Write-Host "Do you want to download/pull it now via 'ollama pull $selectedModel'? [y/N]: " -NoNewline -ForegroundColor Yellow
+    if ($selectedModel -match "(:cloud|-cloud)$") {
+        Write-Host "`nCloud model '$selectedModel' selected." -ForegroundColor Cyan
+        Write-Host "Do you want to register/pull it via 'ollama pull $selectedModel'? [y/N]: " -NoNewline -ForegroundColor Yellow
+    } else {
+        Write-Host "`nModel '$selectedModel' is not downloaded yet." -ForegroundColor Yellow
+        Write-Host "Do you want to download/pull it now via 'ollama pull $selectedModel'? [y/N]: " -NoNewline -ForegroundColor Yellow
+    }
     $pullAnswer = Get-SafeInput
     if ($pullAnswer -match "^[yY]") {
         Write-Host "Pulling $selectedModel from Ollama library..." -ForegroundColor Cyan

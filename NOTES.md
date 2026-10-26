@@ -70,9 +70,9 @@ We are extending Harness² beyond static benchmarks into a **live autonomous imp
 
 ---
 
-## 4. Development Roadmap for Custom Task Engine
-- [ ] Update Ollama model list in `scripts/select_ollama_model.ps1` with the latest cloud and high-performance coding models (`deepseek-r1:32b`, `qwen2.5-coder:32b`, `codestral:22b`, `command-r-plus`, `phi4`).
-- [ ] Create `scripts/dispatch_task.py`: The standalone task runner that accepts a custom user problem, executes the recursive Propose–Probe–Compose cycle via Ollama, and produces deliverable files.
-- [ ] Create `scripts/sync_knowledge.py`: The bridge that extracts reflection lessons from `runs/` and updates `GEMINI.md` and `CLAUDE.md`.
-- [ ] Create `.agents/skills/harness/SKILL.md`: The Antigravity skill enabling seamless task handoff directly from chat.
-- [ ] Engage Verifier and Critic subagents to audit, test, and challenge every script before finalizing.
+## 4. Development Status for Custom Task Engine
+- [x] Update Ollama model list in `scripts/select_ollama_model.ps1` with the latest cloud and high-performance models (`glm-5.3-flash:cloud`, `deepseek-v4.1-flash:cloud`, `minimax-m3.1-flash:cloud`, `qwen3.8:27b-mtp-q4_K_M`, `qwen3-coder:480b-cloud`, `deepseek-v3.1:671b-cloud`, `gpt-oss:120b-cloud`, `kimi-k2.7-code:cloud`).
+- [x] Create `scripts/dispatch_task.py`: The standalone task runner that accepts a custom user problem, executes the recursive Propose–Probe–Compose cycle via Ollama, and produces deliverable files.
+- [x] Create `scripts/sync_knowledge.py`: The bridge that extracts reflection lessons from `runs/` and updates `GEMINI.md` and `CLAUDE.md`.
+- [x] Create `.agents/skills/harness/SKILL.md`: The Antigravity skill enabling seamless task handoff directly from chat.
+- [x] Engage Verifier and Critic subagents to audit, test, and challenge scripts with fault-tolerant prefix stripping and tag handling.

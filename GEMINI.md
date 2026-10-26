@@ -34,7 +34,7 @@
 - `start.bat`: General launcher (auto `.venv` provisioning, tests, checks, demo, activated shell).
 - `start_ollama.bat`: Full-featured launcher with interactive CLI chat (`scripts/harness_chat.py`), model detection, and task execution.
 - `start_google.bat`: Configured for Google Cloud Vertex AI (ADC credentials, project detection, Gemini 2.5 Flash).
-- `scripts/select_ollama_model.ps1`: Dynamic Ollama scanner categorizing local weights and cloud models (`qwen3-coder:480b-cloud`, `deepseek-v3.1:671b-cloud`, `kimi-k2.7-code:cloud`, `gpt-oss:120b-cloud`).
+- `scripts/select_ollama_model.ps1`: Dynamic Ollama scanner categorizing local weights and cloud models (`glm-5.3-flash:cloud`, `deepseek-v4.1-flash:cloud`, `minimax-m3.1-flash:cloud`, `qwen3.8:27b-mtp-q4_K_M`, `qwen3-coder:480b-cloud`, `deepseek-v3.1:671b-cloud`, `kimi-k2.7-code:cloud`, `gpt-oss:120b-cloud`).
 - `scripts/harness_chat.py`: Interactive CLI chat with active harness rules and system prompt.
 
 ## Autonomous Lessons (Harness² Knowledge Base)
