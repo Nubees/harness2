@@ -755,7 +755,24 @@
           if (evt.message) log(`[${evt.stage_name || 'LOG'}] ${evt.message}`);
 
           if (evt.type === 'token_chunk') {
-            document.getElementById('token-counter').textContent = `${evt.content_chars} chars`;
+            const co = evt.content_chars || 0;
+            const th = evt.thinking_chars || 0;
+            if (co > 0) {
+              document.getElementById('token-counter').textContent = `${co.toLocaleString()} chars (code)`;
+            } else if (th > 0) {
+              document.getElementById('token-counter').textContent = `${th.toLocaleString()} chars (reasoning)`;
+            }
+          }
+
+          if (evt.stage_name === 'Failed') {
+            sse.close();
+            clearInterval(timerInterval);
+            genBtn.disabled = false;
+            document.getElementById('btn-icon').textContent = '⚠️';
+            document.getElementById('btn-text').textContent = 'Generate 3D Model';
+            document.getElementById('current-stage-title').textContent = 'Failed';
+            log(`[Generation Failed] ${evt.message || 'Unknown error occurred'}`);
+            return;
           }
 
           if (evt.stage === 5 || evt.stage_name === 'Complete') {

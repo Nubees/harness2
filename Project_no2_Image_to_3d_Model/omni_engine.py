@@ -274,7 +274,15 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
         try:
             while True:
                 chunk = next(stream)
-                report(2, "Synthesis", f"Generating code ({chunk['content_chars']} chars generated)...", chunk)
+                co = chunk.get("content_chars", 0)
+                th = chunk.get("thinking_chars", 0)
+                if co > 0:
+                    msg = f"Synthesizing Blender Python code ({co:,} chars)..."
+                elif th > 0:
+                    msg = f"Reasoning 3D geometry & anatomy ({th:,} chars)..."
+                else:
+                    msg = "Model initializing..."
+                report(2, "Synthesis", msg, chunk)
         except StopIteration as stop:
             synthesized_code = stop.value
 
@@ -282,13 +290,18 @@ ENGINEERING SPECIFICATION & BEST PRACTICES:
         m = re.search(r"```(?:python|py)?\s*\n(.*?)```", synthesized_code, re.DOTALL)
         python_script = m.group(1).strip() if m else synthesized_code
 
-        # Ensure correct exports target directory in script
-        target_replacement = f'exports_dir = Path(r"{exports_dir}")'
-        python_script = re.sub(
-            r'exports_dir\s*=\s*Path\(__file__\)\.resolve\(\)\.parent\s*/\s*["\']exports["\']',
-            target_replacement,
-            python_script,
-        )
+        # Ensure correct exports target directory in script using posix forward slashes
+        exports_posix = exports_dir.resolve().as_posix()
+        target_statement = f'exports_dir = Path("{exports_posix}")'
+
+        # Safely replace exports_dir using lambda (prevents regex backslash escape evaluation on Windows)
+        pattern = r'exports_dir\s*=\s*Path\(__file__\)\.resolve\(\)\.parent\s*/\s*["\']exports["\']'
+        if re.search(pattern, python_script):
+            python_script = re.sub(pattern, lambda _: target_statement, python_script, count=1)
+        elif re.search(r'exports_dir\s*=\s*Path\([^\)]+\)', python_script):
+            python_script = re.sub(r'exports_dir\s*=\s*Path\([^\)]+\)', lambda _: target_statement, python_script, count=1)
+        else:
+            python_script = f'from pathlib import Path\n{target_statement}\nexports_dir.mkdir(parents=True, exist_ok=True)\n' + python_script
 
         script_file = job_dir / "generate_model.py"
         script_file.write_text(python_script, encoding="utf-8")
