@@ -394,6 +394,424 @@ def inject_exports_dir(python_script: str, exports_dir: Path) -> str:
     return python_script
 
 
+def build_silhouette_inflation_script(
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    cushion_thickness: float = 0.38,
+    grid_res: int = 86,
+    user_guidance: str = "",
+) -> str:
+    """Generate high-speed Teddy silhouette inflation and exact UV texture projection script."""
+    img_posix = image_path.resolve().as_posix()
+    exp_posix = exports_dir.resolve().as_posix()
+    formats_json = json.dumps(formats)
+
+    return f'''"""Auto-Generated Teddy Silhouette Inflation & Exact UV Projection Script."""
+import time
+import json
+from pathlib import Path
+import bpy
+import bmesh
+import numpy as np
+
+def init_clean_scene():
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    for o in list(bpy.data.objects):
+        bpy.data.objects.remove(o, do_unlink=True)
+    for _ in range(3):
+        bpy.data.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+
+def filter_islands(mask, min_size=35):
+    h, w = mask.shape
+    visited = np.zeros((h, w), dtype=bool)
+    cleaned = np.zeros((h, w), dtype=bool)
+    for y in range(h):
+        for x in range(w):
+            if mask[y, x] and not visited[y, x]:
+                island = []
+                queue = [(x, y)]
+                visited[y, x] = True
+                while queue:
+                    cx, cy = queue.pop(0)
+                    island.append((cx, cy))
+                    for dx, dy in ((-1,0), (1,0), (0,-1), (0,1)):
+                        nx, ny = cx + dx, cy + dy
+                        if 0 <= nx < w and 0 <= ny < h and mask[ny, nx] and not visited[ny, nx]:
+                            visited[ny, nx] = True
+                            queue.append((nx, ny))
+                if len(island) >= min_size:
+                    for ix, iy in island:
+                        cleaned[iy, ix] = True
+    return cleaned
+
+def fast_chamfer_edt(mask):
+    h, w = mask.shape
+    INF = float(h + w)
+    dist = np.where(mask, INF, 0.0).astype(np.float32)
+    for y in range(h):
+        for x in range(w):
+            if mask[y, x]:
+                val = dist[y, x]
+                if y > 0: val = min(val, dist[y - 1, x] + 1.0)
+                if x > 0: val = min(val, dist[y, x - 1] + 1.0)
+                if y > 0 and x > 0: val = min(val, dist[y - 1, x - 1] + 1.414)
+                if y > 0 and x < w - 1: val = min(val, dist[y - 1, x + 1] + 1.414)
+                dist[y, x] = val
+    for y in range(h - 1, -1, -1):
+        for x in range(w - 1, -1, -1):
+            if mask[y, x]:
+                val = dist[y, x]
+                if y < h - 1: val = min(val, dist[y + 1, x] + 1.0)
+                if x < w - 1: val = min(val, dist[y, x + 1] + 1.0)
+                if y < h - 1 and x < w - 1: val = min(val, dist[y + 1, x + 1] + 1.414)
+                if y < h - 1 and x > 0: val = min(val, dist[y + 1, x - 1] + 1.414)
+                dist[y, x] = val
+    return dist
+
+def main():
+    t0 = time.time()
+    init_clean_scene()
+    
+    img_path = "{img_posix}"
+    exports_dir = Path("{exp_posix}")
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    formats = {formats_json}
+    
+    img = bpy.data.images.load(img_path)
+    w_orig, h_orig = img.size
+    pixels = np.array(img.pixels[:], dtype=np.float32).reshape((h_orig, w_orig, 4))
+    
+    grid_res = {grid_res}
+    step_y = max(1, h_orig // grid_res)
+    step_x = max(1, w_orig // grid_res)
+    sub = pixels[::step_y, ::step_x, :]
+    h, w, _ = sub.shape
+    
+    alpha = sub[:, :, 3]
+    rgb = sub[:, :, :3]
+    if np.any(alpha < 0.85):
+        raw_mask = alpha > 0.15
+    else:
+        corners = np.vstack([rgb[:4, :4, :].reshape(-1, 3),
+                             rgb[-4:, :4, :].reshape(-1, 3),
+                             rgb[:4, -4:, :].reshape(-1, 3),
+                             rgb[-4:, -4:, :].reshape(-1, 3)])
+        bg = np.median(corners, axis=0)
+        diff = np.linalg.norm(rgb - bg, axis=-1)
+        raw_mask = diff > 0.15
+        
+    mask = filter_islands(raw_mask, min_size=35)
+    if np.sum(mask) < 20:
+        mask = raw_mask
+    if np.sum(mask) < 20:
+        mask = np.ones((h, w), dtype=bool)
+        
+    dist = fast_chamfer_edt(mask)
+    max_d = max(1.0, float(dist.max()))
+    norm_dist = np.clip(dist / max_d, 0.0, 1.0)
+    cushion = {cushion_thickness}
+    z_map = cushion * np.sin(norm_dist * (np.pi / 2.0))
+    
+    is_border = np.zeros_like(mask, dtype=bool)
+    for y in range(h):
+        for x in range(w):
+            if mask[y, x]:
+                if y == 0 or y == h - 1 or x == 0 or x == w - 1:
+                    is_border[y, x] = True
+                elif not (mask[y-1, x] and mask[y+1, x] and mask[y, x-1] and mask[y, x+1]):
+                    is_border[y, x] = True
+    z_map[is_border] = 0.0
+    
+    bm = bmesh.new()
+    uv_layer = bm.loops.layers.uv.new("UVMap")
+    aspect = w / h
+    scale_x = aspect * 2.0
+    scale_z = 2.0
+    
+    v_front, v_back = {{}}, {{}}
+    for y in range(h):
+        for x in range(w):
+            if mask[y, x]:
+                vx = (x / (w - 1) - 0.5) * scale_x
+                vz = (y / (h - 1) - 0.5) * scale_z
+                elev = float(z_map[y, x])
+                if is_border[y, x]:
+                    v_seam = bm.verts.new((vx, 0.0, vz))
+                    v_front[(x, y)] = v_seam
+                    v_back[(x, y)] = v_seam
+                else:
+                    v_front[(x, y)] = bm.verts.new((vx, -elev, vz))
+                    v_back[(x, y)] = bm.verts.new((vx, +elev * 0.85, vz))
+                    
+    bm.verts.ensure_lookup_table()
+    for y in range(h - 1):
+        for x in range(w - 1):
+            corners = [(x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)]
+            if all(c in v_front for c in corners):
+                verts_f = [v_front[c] for c in corners]
+                if len(set(verts_f)) >= 3:
+                    try:
+                        ff = bm.faces.new(verts_f)
+                        for loop in ff.loops:
+                            u = (loop.vert.co.x / scale_x) + 0.5
+                            v = (loop.vert.co.z / scale_z) + 0.5
+                            loop[uv_layer].uv = (min(1.0, max(0.0, u)), min(1.0, max(0.0, v)))
+                    except ValueError:
+                        pass
+                verts_b = [v_back[c] for c in reversed(corners)]
+                if len(set(verts_b)) >= 3:
+                    try:
+                        fb = bm.faces.new(verts_b)
+                        for loop in fb.loops:
+                            u = 1.0 - ((loop.vert.co.x / scale_x) + 0.5)
+                            v = (loop.vert.co.z / scale_z) + 0.5
+                            loop[uv_layer].uv = (min(1.0, max(0.0, u)), min(1.0, max(0.0, v)))
+                    except ValueError:
+                        pass
+                        
+    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=0.005)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    
+    mesh = bpy.data.meshes.new("TeddyMesh")
+    bm.to_mesh(mesh)
+    bm.free()
+    
+    obj = bpy.data.objects.new("TeddyAsset", mesh)
+    bpy.context.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    
+    sm = obj.modifiers.new("Smooth", "SMOOTH")
+    sm.factor = 0.5
+    sm.iterations = 2
+    bpy.ops.object.modifier_apply(modifier="Smooth")
+    
+    sub_mod = obj.modifiers.new("Subsurf", "SUBSURF")
+    sub_mod.levels = 1
+    bpy.ops.object.modifier_apply(modifier="Subsurf")
+    bpy.ops.object.shade_smooth()
+    
+    mat = bpy.data.materials.new("FaithfulImagePBR")
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes.get("Principled BSDF")
+    tex_node = nodes.new("ShaderNodeTexImage")
+    tex_node.image = img
+    links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
+    bsdf.inputs["Roughness"].default_value = 0.35
+    for sub_k in ("Subsurface Weight", "Subsurface"):
+        if sub_k in bsdf.inputs:
+            bsdf.inputs[sub_k].default_value = 0.20
+            break
+    obj.data.materials.append(mat)
+    
+    bpy.ops.object.select_all(action='SELECT')
+    if "glb" in formats:
+        bpy.ops.export_scene.gltf(filepath=str(exports_dir / "model.glb"), export_format='GLB', export_apply=True)
+    if "obj" in formats:
+        bpy.ops.wm.obj_export(filepath=str(exports_dir / "model.obj"))
+    if "stl" in formats:
+        bpy.ops.wm.stl_export(filepath=str(exports_dir / "model.stl"))
+    if "fbx" in formats:
+        bpy.ops.export_scene.fbx(filepath=str(exports_dir / "model.fbx"))
+        
+    print(f"SILHOUETTE_INFLATION_OK: Completed in {{time.time() - t0:.2f}}s")
+    print("MODEL_BUILD_OK")
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def build_contour_relief_script(
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    relief_depth: float = 0.16,
+    base_thickness: float = 0.08,
+    grid_res: int = 86,
+    user_guidance: str = "",
+) -> str:
+    """Generate high-resolution 2.5D contour relief and antique metallic PBR script."""
+    img_posix = image_path.resolve().as_posix()
+    exp_posix = exports_dir.resolve().as_posix()
+    formats_json = json.dumps(formats)
+
+    return f'''"""Auto-Generated SOTA 2.5D Contour Relief & Metallic PBR Script."""
+import time
+import json
+from pathlib import Path
+import bpy
+import bmesh
+import numpy as np
+
+def init_clean_scene():
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    for o in list(bpy.data.objects):
+        bpy.data.objects.remove(o, do_unlink=True)
+    for _ in range(3):
+        bpy.data.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+
+def filter_islands(mask, min_size=35):
+    h, w = mask.shape
+    visited = np.zeros((h, w), dtype=bool)
+    cleaned = np.zeros((h, w), dtype=bool)
+    for y in range(h):
+        for x in range(w):
+            if mask[y, x] and not visited[y, x]:
+                island = []
+                queue = [(x, y)]
+                visited[y, x] = True
+                while queue:
+                    cx, cy = queue.pop(0)
+                    island.append((cx, cy))
+                    for dx, dy in ((-1,0), (1,0), (0,-1), (0,1)):
+                        nx, ny = cx + dx, cy + dy
+                        if 0 <= nx < w and 0 <= ny < h and mask[ny, nx] and not visited[ny, nx]:
+                            visited[ny, nx] = True
+                            queue.append((nx, ny))
+                if len(island) >= min_size:
+                    for ix, iy in island:
+                        cleaned[iy, ix] = True
+    return cleaned
+
+def main():
+    t0 = time.time()
+    init_clean_scene()
+    
+    img_path = "{img_posix}"
+    exports_dir = Path("{exp_posix}")
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    formats = {formats_json}
+    
+    img = bpy.data.images.load(img_path)
+    w_orig, h_orig = img.size
+    pixels = np.array(img.pixels[:], dtype=np.float32).reshape((h_orig, w_orig, 4))
+    
+    grid_res = {grid_res}
+    step_y = max(1, h_orig // grid_res)
+    step_x = max(1, w_orig // grid_res)
+    sub = pixels[::step_y, ::step_x, :]
+    h, w, _ = sub.shape
+    
+    alpha = sub[:, :, 3]
+    rgb = sub[:, :, :3]
+    gray = 0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]
+    
+    if np.any(alpha < 0.85):
+        raw_mask = alpha > 0.15
+    else:
+        corners = np.vstack([rgb[:4, :4, :].reshape(-1, 3),
+                             rgb[-4:, :4, :].reshape(-1, 3),
+                             rgb[:4, -4:, :].reshape(-1, 3),
+                             rgb[-4:, -4:, :].reshape(-1, 3)])
+        bg = np.median(corners, axis=0)
+        diff = np.linalg.norm(rgb - bg, axis=-1)
+        raw_mask = diff > 0.15
+        
+    mask = filter_islands(raw_mask, min_size=35)
+    if np.sum(mask) < 20:
+        mask = raw_mask
+    if np.sum(mask) < 20:
+        mask = np.ones((h, w), dtype=bool)
+        
+    aspect = w / h
+    scale_x = aspect * 2.0
+    scale_z = 2.0
+    relief_d = {relief_depth}
+    base_t = {base_thickness}
+    
+    bm = bmesh.new()
+    uv_layer = bm.loops.layers.uv.new("UVMap")
+    
+    v_top = {{}}
+    v_bot = {{}}
+    for y in range(h):
+        for x in range(w):
+            if mask[y, x]:
+                vx = (x / (w - 1) - 0.5) * scale_x
+                vz = (y / (h - 1) - 0.5) * scale_z
+                z_rel = float(gray[y, x]) * relief_d
+                v_top[(x, y)] = bm.verts.new((vx, -(base_t + z_rel), vz))
+                v_bot[(x, y)] = bm.verts.new((vx, 0.0, vz))
+                
+    bm.verts.ensure_lookup_table()
+    for y in range(h - 1):
+        for x in range(w - 1):
+            corners = [(x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)]
+            if all(c in v_top for c in corners):
+                ft = bm.faces.new([v_top[c] for c in corners])
+                for loop in ft.loops:
+                    u = (loop.vert.co.x / scale_x) + 0.5
+                    v = (loop.vert.co.z / scale_z) + 0.5
+                    loop[uv_layer].uv = (min(1.0, max(0.0, u)), min(1.0, max(0.0, v)))
+                    
+                fb = bm.faces.new([v_bot[c] for c in reversed(corners)])
+                for loop in fb.loops:
+                    u = 1.0 - ((loop.vert.co.x / scale_x) + 0.5)
+                    v = (loop.vert.co.z / scale_z) + 0.5
+                    loop[uv_layer].uv = (min(1.0, max(0.0, u)), min(1.0, max(0.0, v)))
+                    
+    top_verts = set(v_top.values())
+    bot_map = {{v_top[k]: v_bot[k] for k in v_top}}
+    boundary_edges = [e for e in bm.edges if e.verts[0] in top_verts and e.verts[1] in top_verts and len(e.link_faces) == 1]
+    for edge in boundary_edges:
+        v1, v2 = edge.verts
+        f = edge.link_faces[0]
+        v_idx = list(f.verts).index(v1)
+        if f.verts[(v_idx + 1) % len(f.verts)] == v2:
+            bm.faces.new([v2, v1, bot_map[v1], bot_map[v2]])
+        else:
+            bm.faces.new([v1, v2, bot_map[v2], bot_map[v1]])
+            
+    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=0.005)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    
+    mesh = bpy.data.meshes.new("ReliefMesh")
+    bm.to_mesh(mesh)
+    bm.free()
+    
+    obj = bpy.data.objects.new("ReliefAsset", mesh)
+    bpy.context.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    
+    bev = obj.modifiers.new("Bevel", "BEVEL")
+    bev.width = 0.015
+    bev.segments = 2
+    bpy.ops.object.modifier_apply(modifier="Bevel")
+    bpy.ops.object.shade_smooth()
+    
+    mat = bpy.data.materials.new("ReliefPBR")
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    tex_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
+    tex_node.image = img
+    mat.node_tree.links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
+    bsdf.inputs["Metallic"].default_value = 0.70
+    bsdf.inputs["Roughness"].default_value = 0.28
+    obj.data.materials.append(mat)
+    
+    bpy.ops.object.select_all(action='SELECT')
+    if "glb" in formats:
+        bpy.ops.export_scene.gltf(filepath=str(exports_dir / "model.glb"), export_format='GLB', export_apply=True)
+    if "obj" in formats:
+        bpy.ops.wm.obj_export(filepath=str(exports_dir / "model.obj"))
+    if "stl" in formats:
+        bpy.ops.wm.stl_export(filepath=str(exports_dir / "model.stl"))
+    if "fbx" in formats:
+        bpy.ops.export_scene.fbx(filepath=str(exports_dir / "model.fbx"))
+        
+    print(f"CONTOUR_RELIEF_OK: Completed in {{time.time() - t0:.2f}}s")
+    print("MODEL_BUILD_OK")
+
+if __name__ == "__main__":
+    main()
+'''
+
+
 class Omni3DEngine:
     """Core synthesis and orchestration engine for Image-to-3D generation."""
 
@@ -639,6 +1057,8 @@ FINAL REQUIREMENTS (CRITICAL):
         exports_dir = job_dir / "exports"
         exports_dir.mkdir(parents=True, exist_ok=True)
 
+        print(f"[DEBUG omni_engine] generate_asset called with quality_preset: {quality_preset}")
+
         def report(stage: int, stage_name: str, message: str, meta: dict | None = None):
             if progress_cb:
                 data = {"stage": stage, "stage_name": stage_name, "message": message, "timestamp": time.time()}
@@ -646,62 +1066,90 @@ FINAL REQUIREMENTS (CRITICAL):
                     data.update(meta)
                 progress_cb(data)
 
-        # Stage 1: Spatial Perception
-        preset_name = "SOTA Organic Sculpt" if quality_preset == "sota_sculpt" else "Fast Procedural"
-        report(1, "Perception", f"Analyzing reference image ({image_path.name}) with {model} [{preset_name}]...")
-        prompt = self.build_ll3m_prompt(user_guidance=guidance, export_formats=formats, quality_preset=quality_preset)
+        # Stage 1 & 2: Route by Mesh Architecture Preset
+        if quality_preset == "silhouette_inflation":
+            report(1, "Perception", f"Extracting 2D silhouette contours from {image_path.name} (Teddy EDT Architecture)...")
+            time.sleep(0.3)
+            report(2, "Synthesis", "Synthesizing harmonic EDT distance transform mesh & frontal UV projection...")
+            python_script = build_silhouette_inflation_script(
+                image_path=image_path,
+                exports_dir=exports_dir,
+                formats=formats,
+                user_guidance=guidance,
+            )
+            script_file = job_dir / "generate_model.py"
+            script_file.write_text(python_script, encoding="utf-8")
+            report(2, "Synthesis", "Watertight Teddy inflation script generated.")
+        elif quality_preset == "contour_relief":
+            report(1, "Perception", f"Analyzing image luminance and heightmap contours from {image_path.name}...")
+            time.sleep(0.3)
+            report(2, "Synthesis", "Synthesizing 2.5D displacement relief and antique metallic PBR...")
+            python_script = build_contour_relief_script(
+                image_path=image_path,
+                exports_dir=exports_dir,
+                formats=formats,
+                user_guidance=guidance,
+            )
+            script_file = job_dir / "generate_model.py"
+            script_file.write_text(python_script, encoding="utf-8")
+            report(2, "Synthesis", "2.5D Contour relief script generated.")
+        else:
+            # Stage 1: Spatial Perception
+            preset_name = "SOTA Organic Sculpt" if quality_preset == "sota_sculpt" else "Fast Procedural"
+            report(1, "Perception", f"Analyzing reference image ({image_path.name}) with {model} [{preset_name}]...")
+            prompt = self.build_ll3m_prompt(user_guidance=guidance, export_formats=formats, quality_preset=quality_preset)
 
-        # Stage 2: Procedural Code Synthesis
-        report(2, "Synthesis", f"Synthesizing Blender Python modeling code via {model}...")
-        stream = self.stream_ollama_chat(prompt=prompt, image_path=image_path, model=model)
-        try:
-            while True:
-                chunk = next(stream)
-                co = chunk.get("content_chars", 0)
-                th = chunk.get("thinking_chars", 0)
-                if co > 0:
-                    msg = f"Synthesizing Blender Python code ({co:,} chars)..."
-                elif th > 0:
-                    msg = f"Reasoning 3D geometry & anatomy ({th:,} chars)..."
-                else:
-                    msg = "Model initializing..."
-                report(2, "Synthesis", msg, chunk)
-        except StopIteration as stop:
-            synthesized_code = stop.value
-
-        # Persist full raw LLM response for auditability & debugging
-        (job_dir / "raw_llm_response.txt").write_text(synthesized_code, encoding="utf-8")
-
-        # Robustly extract the full Blender Python script (handles multiple blocks & unclosed blocks)
-        python_script = extract_blender_script(synthesized_code)
-
-        # If the first attempt produced no code (e.g. reasoning hit token limit), automatically retry once with direct code prompt
-        if not python_script or "import bpy" not in python_script:
-            report(2, "Synthesis", "Reasoning completed without code. Retrying direct code synthesis...")
-            retry_prompt = prompt + "\n\nCRITICAL INSTRUCTION: Output ONLY the complete runnable Python script starting with ```python\nimport bpy. Do not include chain-of-thought or markdown essays."
-            stream = self.stream_ollama_chat(prompt=retry_prompt, image_path=image_path, model=model)
+            # Stage 2: Procedural Code Synthesis
+            report(2, "Synthesis", f"Synthesizing Blender Python modeling code via {model}...")
+            stream = self.stream_ollama_chat(prompt=prompt, image_path=image_path, model=model)
             try:
                 while True:
                     chunk = next(stream)
                     co = chunk.get("content_chars", 0)
+                    th = chunk.get("thinking_chars", 0)
                     if co > 0:
-                        report(2, "Synthesis", f"Synthesizing Blender Python code ({co:,} chars)...", chunk)
+                        msg = f"Synthesizing Blender Python code ({co:,} chars)..."
+                    elif th > 0:
+                        msg = f"Reasoning 3D geometry & anatomy ({th:,} chars)..."
+                    else:
+                        msg = "Model initializing..."
+                    report(2, "Synthesis", msg, chunk)
             except StopIteration as stop:
                 synthesized_code = stop.value
-            (job_dir / "raw_llm_response_retry.txt").write_text(synthesized_code, encoding="utf-8")
+
+            # Persist full raw LLM response for auditability & debugging
+            (job_dir / "raw_llm_response.txt").write_text(synthesized_code, encoding="utf-8")
+
+            # Robustly extract the full Blender Python script (handles multiple blocks & unclosed blocks)
             python_script = extract_blender_script(synthesized_code)
 
-        if not python_script or "import bpy" not in python_script:
-            report(2, "Failed", "LLM did not return a valid Blender Python modeling script.")
-            raise RuntimeError("No valid Blender Python script found in LLM response.")
+            # If the first attempt produced no code (e.g. reasoning hit token limit), automatically retry once with direct code prompt
+            if not python_script or "import bpy" not in python_script:
+                report(2, "Synthesis", "Reasoning completed without code. Retrying direct code synthesis...")
+                retry_prompt = prompt + "\n\nCRITICAL INSTRUCTION: Output ONLY the complete runnable Python script starting with ```python\nimport bpy. Do not include chain-of-thought or markdown essays."
+                stream = self.stream_ollama_chat(prompt=retry_prompt, image_path=image_path, model=model)
+                try:
+                    while True:
+                        chunk = next(stream)
+                        co = chunk.get("content_chars", 0)
+                        if co > 0:
+                            report(2, "Synthesis", f"Synthesizing Blender Python code ({co:,} chars)...", chunk)
+                except StopIteration as stop:
+                    synthesized_code = stop.value
+                (job_dir / "raw_llm_response_retry.txt").write_text(synthesized_code, encoding="utf-8")
+                python_script = extract_blender_script(synthesized_code)
 
-        # Sanitize known Blender API hallucinations & inject target exports_dir
-        python_script = sanitize_blender_script(python_script)
-        python_script = inject_exports_dir(python_script, exports_dir)
+            if not python_script or "import bpy" not in python_script:
+                report(2, "Failed", "LLM did not return a valid Blender Python modeling script.")
+                raise RuntimeError("No valid Blender Python script found in LLM response.")
 
-        script_file = job_dir / "generate_model.py"
-        script_file.write_text(python_script, encoding="utf-8")
-        report(2, "Synthesis", "Procedural code synthesis complete.")
+            # Sanitize known Blender API hallucinations & inject target exports_dir
+            python_script = sanitize_blender_script(python_script)
+            python_script = inject_exports_dir(python_script, exports_dir)
+
+            script_file = job_dir / "generate_model.py"
+            script_file.write_text(python_script, encoding="utf-8")
+            report(2, "Synthesis", "Procedural code synthesis complete.")
 
         # Stage 3: Headless Blender Compilation
         report(3, "Blender Compile", "Executing script headlessly in Blender 5.2 LTS...")

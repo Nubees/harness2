@@ -260,6 +260,7 @@ class StudioHTTPHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/generate":
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length).decode("utf-8"))
+            print(f"[DEBUG app.py] Received /api/generate request with quality_preset: {body.get('quality_preset')}")
 
             image_ref = body.get("image", "spaceman.png")
             model = body.get("model", "glm-5.3-flash:cloud")

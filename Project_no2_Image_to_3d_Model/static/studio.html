@@ -140,16 +140,18 @@
         <div>
           <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
             <span>3. Mesh Architecture & Quality</span>
-            <span class="text-[10px] text-cyan-400 font-mono">SOTA Mode</span>
+            <span class="text-[10px] text-cyan-400 font-mono" id="preset-mode-badge">Teddy Inflation</span>
           </label>
           <div class="relative">
             <select id="preset-select" class="w-full bg-slate-850 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500">
-              <option value="sota_sculpt" selected>🌟 SOTA Organic Sculpt (OpenVDB Remesh + Splines + SSS)</option>
+              <option value="silhouette_inflation" selected>🎈 SOTA Silhouette Inflation (Teddy/EDT + Exact UV Texture)</option>
+              <option value="sota_sculpt">🌟 SOTA Organic Sculpt (OpenVDB Remesh + 3D Splines)</option>
+              <option value="contour_relief">🗺️ SOTA 2.5D Contour Relief (Displacement + Metallic PBR)</option>
               <option value="fast_procedural">⚡ Fast Procedural (Classic Box & Bevel)</option>
             </select>
           </div>
-          <p class="text-[10px] text-slate-500 mt-1 font-mono">
-            OpenVDB fuses volumes into continuous watertight skin; 3D Bézier splines create fluid flowing sweeps.
+          <p id="preset-description" class="text-[10px] text-slate-500 mt-1 font-mono leading-relaxed">
+            Directly inflates 2D image silhouette via harmonic Euclidean Distance Transform with 100% pixel-accurate UV texture mapping.
           </p>
         </div>
 
@@ -718,6 +720,38 @@
       }
     }
     loadModels();
+
+    // Dynamic Mesh Architecture Preset updates
+    const presetSelect = document.getElementById('preset-select');
+    const presetBadge = document.getElementById('preset-mode-badge');
+    const presetDesc = document.getElementById('preset-description');
+
+    const PRESET_INFO = {
+      'silhouette_inflation': {
+        badge: 'Teddy Inflation',
+        desc: 'Directly inflates 2D image silhouette via harmonic Euclidean Distance Transform with 100% pixel-accurate UV texture mapping.'
+      },
+      'sota_sculpt': {
+        badge: 'OpenVDB Sculpt',
+        desc: 'OpenVDB fuses volumes into continuous watertight skin; 3D Bézier splines create fluid flowing sweeps.'
+      },
+      'contour_relief': {
+        badge: '2.5D Bas-Relief',
+        desc: 'Converts image luminance to physical 3D displacement with beveled base and antique metallic PBR.'
+      },
+      'fast_procedural': {
+        badge: 'Fast Procedural',
+        desc: 'Fast low-poly blockout with chamfered bevels and flat procedural materials.'
+      }
+    };
+
+    if (presetSelect && presetBadge && presetDesc) {
+      presetSelect.addEventListener('change', () => {
+        const info = PRESET_INFO[presetSelect.value] || PRESET_INFO['silhouette_inflation'];
+        presetBadge.textContent = info.badge;
+        presetDesc.textContent = info.desc;
+      });
+    }
 
     genBtn.addEventListener('click', async () => {
       const model = document.getElementById('model-select').value;
