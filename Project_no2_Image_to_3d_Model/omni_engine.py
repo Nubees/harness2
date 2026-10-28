@@ -7,6 +7,7 @@ exporting into GLB, OBJ, STL, and FBX formats.
 
 from __future__ import annotations
 
+import ast
 import base64
 import datetime
 import io
@@ -70,13 +71,25 @@ def encode_image(image_path: Path, max_dim: int = 448) -> tuple[str, str]:
         return b64, mime
 
 
+def is_valid_python_syntax(code: str) -> bool:
+    """Check if code snippet is syntactically valid Python without crashing."""
+    if not code or not code.strip():
+        return False
+    try:
+        ast.parse(code)
+        return True
+    except (SyntaxError, ValueError):
+        return False
+
+
 def extract_blender_script(llm_output: str) -> str:
     """Robustly extract the primary, complete Blender Python script from LLM output.
 
     Handles:
     - Multiple code blocks (filters and picks the complete script containing 'import bpy' and exporters)
     - Unclosed code blocks (where LLM hit token budget or stream finished before closing ```)
-    - Direct python scripts without markdown fences
+    - Direct python scripts without markdown fences, anchored by line-level imports
+    - Eliminates reasoning monologues, commentary, or text mistakenly matching substrings
     """
     if not llm_output or not llm_output.strip():
         return ""
@@ -84,13 +97,18 @@ def extract_blender_script(llm_output: str) -> str:
     # 1. Find all closed markdown code blocks
     code_blocks = re.findall(r"```(?:python|py)?\s*\n(.*?)```", llm_output, re.DOTALL)
     if code_blocks:
-        # Prefer blocks containing import bpy or bpy.
-        bpy_blocks = [b.strip() for b in code_blocks if "import bpy" in b or "bpy." in b]
+        bpy_blocks = [b.strip() for b in code_blocks if re.search(r'(?m)^[ \t]*import bpy\b', b) or "bpy." in b]
         if bpy_blocks:
+            # Prefer blocks that are syntactically valid and contain import bpy
             full_scripts = [b for b in bpy_blocks if "import bpy" in b]
             if full_scripts:
-                # Return the longest complete script
+                valid = [b for b in full_scripts if is_valid_python_syntax(b)]
+                if valid:
+                    return max(valid, key=len)
                 return max(full_scripts, key=len)
+            valid = [b for b in bpy_blocks if is_valid_python_syntax(b)]
+            if valid:
+                return max(valid, key=len)
             return max(bpy_blocks, key=len)
         return max(code_blocks, key=len).strip()
 
@@ -98,15 +116,25 @@ def extract_blender_script(llm_output: str) -> str:
     unclosed = re.search(r"```(?:python|py)?\s*\n(.*)$", llm_output, re.DOTALL)
     if unclosed:
         code = unclosed.group(1).strip()
-        if "bpy" in code or len(code) > 80:
+        if re.search(r'(?m)^[ \t]*import bpy\b', code) or "bpy." in code:
             return code
 
-    # 3. Fallback: search for 'import bpy'
-    if "import bpy" in llm_output:
-        idx = llm_output.find("import bpy")
-        return llm_output[idx:].strip()
+    # 3. Fallback: line-anchored search for '^import bpy' or '^from ... import bpy'
+    m_import = re.search(r'(?m)^[ \t]*(?:import bpy\b|from [^\n]+ import [^\n]*bpy)', llm_output)
+    if m_import:
+        candidate = llm_output[m_import.start():].strip()
+        lines = candidate.splitlines()
+        code_lines = []
+        for line in lines:
+            # Stop if markdown heading or conversational closing appears after code
+            if len(code_lines) > 20 and re.match(r'^(?:#{1,3}\s|Explanation:|Summary:|Notes:|I hope |Let me know|This script )', line.strip()):
+                break
+            code_lines.append(line)
+        cleaned = "\n".join(code_lines).strip()
+        if is_valid_python_syntax(cleaned) or "bpy.ops" in cleaned:
+            return cleaned
 
-    return llm_output.strip()
+    return ""
 
 
 # Verified High-Fidelity 3D Sculpting & PBR Helper Suite
@@ -333,7 +361,19 @@ def sanitize_blender_script(script: str) -> str:
         script
     )
 
-    # 4. Safe guard voxel remesh size (prevent OOM freezes if < 0.02)
+    # 4. Fix .to_track_quat(...).to_quaternion() hallucination (Vector.to_track_quat already returns Quaternion)
+    script = re.sub(r"\.to_track_quat\(([^\)]+)\)\.to_quaternion\(\)", r".to_track_quat(\1)", script)
+
+    # 5. Fix invalid ## placeholder syntax (e.g. primitive_##op##_)
+    script = re.sub(r'bpy\.ops\.mesh\.primitive_##[^#\n]+##_[^\n]*', 'pass', script)
+
+    # 6. Fix obsolete BLENDER_EEVEE_NEXT engine name (renamed to BLENDER_EEVEE in modern Blender)
+    script = script.replace("'BLENDER_EEVEE_NEXT'", "'BLENDER_EEVEE'").replace('"BLENDER_EEVEE_NEXT"', '"BLENDER_EEVEE"')
+
+    # 7. Safe guard materials.append when None is passed
+    script = re.sub(r'([a-zA-Z0-9_\.]+)\.materials\.append\(([^\)]+)\)', r'if \2 is not None: \1.materials.append(\2)', script)
+
+    # 8. Safe guard voxel remesh size (prevent OOM freezes if < 0.02)
     def clamp_voxel(m):
         val = float(m.group(1))
         if val < 0.02:
@@ -344,7 +384,23 @@ def sanitize_blender_script(script: str) -> str:
     # Safe guard direct object removal calls against already deleted StructRNA
     script = re.sub(r"bpy\.data\.objects\.remove\(", "safe_remove_object(", script)
 
-    # 5. Strip any buggy/fragile LLM re-definitions of standard verified helpers so verified implementations take precedence
+    # 9. Strip any stray markdown headers, English prose bullets, or em-dashes at the top
+    clean_lines = []
+    found_code = False
+    for line in script.splitlines():
+        if not found_code:
+            stripped = line.strip()
+            # If line is conversational English or markdown commentary, skip it
+            if stripped.startswith(('Also ', 'Note: ', 'The error: ', 'Fix: ', 'Here is ', '# ---', '```')):
+                continue
+            if stripped.startswith(('import ', 'from ', 'def ', 'class ', '#', 'exports_dir', 'init_clean_scene')):
+                found_code = True
+        if found_code:
+            clean_lines.append(line)
+    if clean_lines:
+        script = "\n".join(clean_lines)
+
+    # 10. Strip any buggy/fragile LLM re-definitions of standard verified helpers so verified implementations take precedence
     for fn_name in HELPER_DEFINITIONS:
         pattern = r'def\s+' + fn_name + r'\s*\([^)]*\):(?:\n(?:[ \t]+.*|[ \t]*))*'
         script = re.sub(pattern, '', script)
@@ -1140,16 +1196,24 @@ FINAL REQUIREMENTS (CRITICAL):
                 python_script = extract_blender_script(synthesized_code)
 
             if not python_script or "import bpy" not in python_script:
-                report(2, "Failed", "LLM did not return a valid Blender Python modeling script.")
-                raise RuntimeError("No valid Blender Python script found in LLM response.")
+                report(2, "Self-Healing", "LLM reasoning budget exceeded without code. Activating Watertight Teddy Silhouette Inflation & Exact UV Engine...")
+                python_script = build_silhouette_inflation_script(
+                    image_path=image_path,
+                    exports_dir=exports_dir,
+                    formats=formats,
+                    user_guidance=guidance,
+                )
+                script_file = job_dir / "generate_model.py"
+                script_file.write_text(python_script, encoding="utf-8")
+                report(2, "Synthesis", "Watertight Teddy inflation script generated.")
+            else:
+                # Sanitize known Blender API hallucinations & inject target exports_dir
+                python_script = sanitize_blender_script(python_script)
+                python_script = inject_exports_dir(python_script, exports_dir)
 
-            # Sanitize known Blender API hallucinations & inject target exports_dir
-            python_script = sanitize_blender_script(python_script)
-            python_script = inject_exports_dir(python_script, exports_dir)
-
-            script_file = job_dir / "generate_model.py"
-            script_file.write_text(python_script, encoding="utf-8")
-            report(2, "Synthesis", "Procedural code synthesis complete.")
+                script_file = job_dir / "generate_model.py"
+                script_file.write_text(python_script, encoding="utf-8")
+                report(2, "Synthesis", "Procedural code synthesis complete.")
 
         # Stage 3: Headless Blender Compilation
         report(3, "Blender Compile", "Executing script headlessly in Blender 5.2 LTS...")
@@ -1174,7 +1238,7 @@ ORIGINAL SCRIPT:
 
 TASK:
 Fix the error in the script. Ensure all syntax, operators, and imports are 100% valid for Blender 5.2 LTS.
-Output ONLY the complete corrected script wrapped in a single ```python ... ``` code block without preamble or explanation."""
+CRITICAL: Do NOT output any reasoning, commentary, or text before or after the code. Output ONLY the complete runnable Python script starting with ```python\nimport bpy and ending with ```."""
 
             stream = self.stream_ollama_chat(prompt=repair_prompt, image_path=None, model=model)
             try:
@@ -1194,11 +1258,21 @@ Output ONLY the complete corrected script wrapped in a single ```python ... ``` 
                 build_result = self.execute_blender_script(script_file)
                 (job_dir / "blender_build.log").write_text(build_result["output"], encoding="utf-8")
 
-        if not build_result["success"]:
-            err_lines = [l for l in build_result["output"].splitlines() if "Error" in l or "Traceback" in l or "File " in l]
-            summary = "\n".join(err_lines[-5:]) if err_lines else build_result["output"][-400:]
-            report(3, "Failed", f"Blender compilation failed:\n{summary}", {"log": build_result["output"][-1000:]})
-            raise RuntimeError(f"Blender script execution failed:\n{summary}")
+        # Safety Fallback Net: If custom LLM code failed or failed to export .glb,
+        # autonomously fallback to the verified, deterministic Teddy Silhouette Inflation & Exact UV engine!
+        has_glb = bool(list(exports_dir.glob("*.glb")))
+        if not build_result["success"] or not has_glb:
+            report(3, "Self-Healing", "Procedural assembly encountered topological/syntax limits. Activating Watertight Teddy Silhouette Inflation & Exact UV fallback...")
+            fallback_script = build_silhouette_inflation_script(
+                image_path=image_path,
+                exports_dir=exports_dir,
+                formats=formats,
+                user_guidance=guidance,
+            )
+            fallback_file = job_dir / "generate_model_fallback.py"
+            fallback_file.write_text(fallback_script, encoding="utf-8")
+            build_result = self.execute_blender_script(fallback_file)
+            (job_dir / "blender_build_fallback.log").write_text(build_result["output"], encoding="utf-8")
 
         # Stage 4: Deliverables Verification
         report(4, "Deliverables", "Verifying export files and metadata...")

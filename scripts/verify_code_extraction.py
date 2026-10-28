@@ -103,4 +103,27 @@ assert "def fuse_objects_voxel_remesh" in sanitized_sota, "Failed: fuse_objects_
 assert "def create_swept_spline_mesh" in sanitized_sota, "Failed: create_swept_spline_mesh not injected"
 print("Test 6 PASS: Verified SOTA sculpting helpers are automatically injected into caller scripts!")
 
-print("\nALL 6 ROBUSTNESS TESTS PASSED 100%!")
+# Test 7: Conversational prose monologue mentioning 'import bpy' inside sentences must NOT extract invalid code
+sample_prose_monologue = """
+I will now think about the error.
+Also init_clean_scene() before materials - but helpers defined before import bpy; init called after import. Fine.
+Also add_cyl fix: o.rotation_quaternion = d.to_track_quat('Z','Y').
+Also rotation_mode = 'QUATERNION' then assign rotation_quaternion — fine.
+"""
+extracted_prose = extract_blender_script(sample_prose_monologue)
+assert extracted_prose == "", f"Expected empty extraction from prose monologue, got: {repr(extracted_prose)}"
+print("Test 7 PASS: Conversational monologue mentioning 'import bpy' safely rejected!")
+
+# Test 8: Sanitizer fixes .to_track_quat().to_quaternion() and primitive_##op##_
+sample_buggy_syntax = """
+import bpy
+o.rotation_quaternion = d.to_track_quat('Z','Y').to_quaternion()
+bpy.ops.mesh.primitive_##op##_(**kw) if False else None
+"""
+sanitized_bugs = sanitize_blender_script(sample_buggy_syntax)
+assert ".to_quaternion()" not in sanitized_bugs
+assert "d.to_track_quat('Z','Y')" in sanitized_bugs
+assert "##op##" not in sanitized_bugs
+print("Test 8 PASS: Hallucinated quaternion and template placeholders successfully sanitized!")
+
+print("\nALL 8 ROBUSTNESS TESTS PASSED 100%!")
