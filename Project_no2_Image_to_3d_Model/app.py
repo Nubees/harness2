@@ -35,6 +35,7 @@ EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 sys.path.insert(0, str(PROJECT_DIR))
 from omni_engine import Omni3DEngine, find_blender
+import providers
 
 ENGINE = Omni3DEngine()
 JOBS: dict[str, dict] = {}
@@ -102,6 +103,18 @@ class StudioHTTPHandler(http.server.BaseHTTPRequestHandler):
                 },
                 "active_jobs": len([j for j in JOBS.values() if j.get("status") == "RUNNING"]),
             }
+            payload = json.dumps(status_data).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
+        # 3.5 API: Providers Status, Lights & Reset Countdown Timers
+        if path == "/api/providers/status":
+            status_data = providers.get_providers_status()
             payload = json.dumps(status_data).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -256,7 +269,22 @@ class StudioHTTPHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
             return
 
-        # 2. Trigger Generation Pipeline
+        # 3. Save Provider API Keys
+        if path == "/api/providers/keys":
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            providers.save_keys(body)
+            status_data = providers.get_providers_status()
+            payload = json.dumps(status_data).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
+        # 4. Trigger Generation Pipeline
         if path == "/api/generate":
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length).decode("utf-8"))

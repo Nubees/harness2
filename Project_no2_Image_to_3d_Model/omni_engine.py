@@ -1122,8 +1122,44 @@ FINAL REQUIREMENTS (CRITICAL):
                     data.update(meta)
                 progress_cb(data)
 
-        # Stage 1 & 2: Route by Mesh Architecture Preset
-        if quality_preset == "silhouette_inflation":
+        # Stage 1 & 2: Route by Mesh Architecture Preset / Provider Engine
+        if quality_preset in ("tripo3d", "meshy", "trellis_hf", "triposr_local"):
+            import providers
+            report(1, "Perception", f"Dispatching image ({image_path.name}) to {quality_preset.upper()} engine...")
+            script_file = job_dir / f"{quality_preset}_job.json"
+            script_file.write_text(json.dumps({"provider": quality_preset, "image": str(image_path), "formats": formats}), encoding="utf-8")
+
+            t_prov = time.time()
+            try:
+                if quality_preset == "tripo3d":
+                    providers.generate_tripo3d_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
+                elif quality_preset == "meshy":
+                    providers.generate_meshy_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
+                elif quality_preset == "trellis_hf":
+                    providers.generate_trellis_hf_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
+                elif quality_preset == "triposr_local":
+                    providers.generate_triposr_local_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
+
+                build_result = {
+                    "success": True,
+                    "output": f"{quality_preset.upper()} neural model generated successfully.",
+                    "elapsed_sec": round(time.time() - t_prov, 2),
+                }
+            except Exception as prov_err:
+                err_text = str(prov_err)
+                report(3, "Provider Warning", f"{quality_preset.upper()}: {err_text}")
+                report(3, "Self-Healing", "Activating Local Offline Watertight Teddy Silhouette & UV Engine as safety net...")
+                fallback_script = build_silhouette_inflation_script(
+                    image_path=image_path,
+                    exports_dir=exports_dir,
+                    formats=formats,
+                    user_guidance=guidance,
+                )
+                fallback_file = job_dir / "generate_model_fallback.py"
+                fallback_file.write_text(fallback_script, encoding="utf-8")
+                build_result = self.execute_blender_script(fallback_file)
+                (job_dir / "blender_build_fallback.log").write_text(build_result["output"], encoding="utf-8")
+        elif quality_preset == "silhouette_inflation":
             report(1, "Perception", f"Extracting 2D silhouette contours from {image_path.name} (Teddy EDT Architecture)...")
             time.sleep(0.3)
             report(2, "Synthesis", "Synthesizing harmonic EDT distance transform mesh & frontal UV projection...")
@@ -1215,18 +1251,19 @@ FINAL REQUIREMENTS (CRITICAL):
                 script_file.write_text(python_script, encoding="utf-8")
                 report(2, "Synthesis", "Procedural code synthesis complete.")
 
-        # Stage 3: Headless Blender Compilation
-        report(3, "Blender Compile", "Executing script headlessly in Blender 5.2 LTS...")
-        build_result = self.execute_blender_script(script_file)
-        (job_dir / "blender_build.log").write_text(build_result["output"], encoding="utf-8")
+        # Stage 3: Headless Blender Compilation (only for procedural/script presets)
+        if quality_preset not in ("tripo3d", "meshy", "trellis_hf", "triposr_local"):
+            report(3, "Blender Compile", "Executing script headlessly in Blender 5.2 LTS...")
+            build_result = self.execute_blender_script(script_file)
+            (job_dir / "blender_build.log").write_text(build_result["output"], encoding="utf-8")
 
-        # Self-Healing Retry Loop (Autonomous Harnessing)
-        if not build_result["success"]:
-            err_lines = [l for l in build_result["output"].splitlines() if "Error" in l or "Traceback" in l or "File " in l]
-            summary = "\n".join(err_lines[-5:]) if err_lines else build_result["output"][-400:]
-            report(3, "Self-Healing", f"Blender reported error:\n{summary}\nAutonomously repairing script...")
+            # Self-Healing Retry Loop (Autonomous Harnessing)
+            if not build_result["success"]:
+                err_lines = [l for l in build_result["output"].splitlines() if "Error" in l or "Traceback" in l or "File " in l]
+                summary = "\n".join(err_lines[-5:]) if err_lines else build_result["output"][-400:]
+                report(3, "Self-Healing", f"Blender reported error:\n{summary}\nAutonomously repairing script...")
 
-            repair_prompt = f"""The following Blender Python script produced an execution error in Blender 5.2 LTS:
+                repair_prompt = f"""The following Blender Python script produced an execution error in Blender 5.2 LTS:
 
 ERROR:
 {summary}
@@ -1240,39 +1277,39 @@ TASK:
 Fix the error in the script. Ensure all syntax, operators, and imports are 100% valid for Blender 5.2 LTS.
 CRITICAL: Do NOT output any reasoning, commentary, or text before or after the code. Output ONLY the complete runnable Python script starting with ```python\nimport bpy and ending with ```."""
 
-            stream = self.stream_ollama_chat(prompt=repair_prompt, image_path=None, model=model)
-            try:
-                while True:
-                    next(stream)
-            except StopIteration as stop:
-                repaired_code = stop.value
+                stream = self.stream_ollama_chat(prompt=repair_prompt, image_path=None, model=model)
+                try:
+                    while True:
+                        next(stream)
+                except StopIteration as stop:
+                    repaired_code = stop.value
 
-            (job_dir / "raw_llm_response_repair.txt").write_text(repaired_code, encoding="utf-8")
-            repaired_script = extract_blender_script(repaired_code)
-            if repaired_script and "import bpy" in repaired_script:
-                repaired_script = sanitize_blender_script(repaired_script)
-                repaired_script = inject_exports_dir(repaired_script, exports_dir)
-                script_file.write_text(repaired_script, encoding="utf-8")
+                (job_dir / "raw_llm_response_repair.txt").write_text(repaired_code, encoding="utf-8")
+                repaired_script = extract_blender_script(repaired_code)
+                if repaired_script and "import bpy" in repaired_script:
+                    repaired_script = sanitize_blender_script(repaired_script)
+                    repaired_script = inject_exports_dir(repaired_script, exports_dir)
+                    script_file.write_text(repaired_script, encoding="utf-8")
 
-                report(3, "Blender Compile", "Re-executing repaired script in Blender 5.2 LTS...")
-                build_result = self.execute_blender_script(script_file)
-                (job_dir / "blender_build.log").write_text(build_result["output"], encoding="utf-8")
+                    report(3, "Blender Compile", "Re-executing repaired script in Blender 5.2 LTS...")
+                    build_result = self.execute_blender_script(script_file)
+                    (job_dir / "blender_build.log").write_text(build_result["output"], encoding="utf-8")
 
-        # Safety Fallback Net: If custom LLM code failed or failed to export .glb,
-        # autonomously fallback to the verified, deterministic Teddy Silhouette Inflation & Exact UV engine!
-        has_glb = bool(list(exports_dir.glob("*.glb")))
-        if not build_result["success"] or not has_glb:
-            report(3, "Self-Healing", "Procedural assembly encountered topological/syntax limits. Activating Watertight Teddy Silhouette Inflation & Exact UV fallback...")
-            fallback_script = build_silhouette_inflation_script(
-                image_path=image_path,
-                exports_dir=exports_dir,
-                formats=formats,
-                user_guidance=guidance,
-            )
-            fallback_file = job_dir / "generate_model_fallback.py"
-            fallback_file.write_text(fallback_script, encoding="utf-8")
-            build_result = self.execute_blender_script(fallback_file)
-            (job_dir / "blender_build_fallback.log").write_text(build_result["output"], encoding="utf-8")
+            # Safety Fallback Net: If custom LLM code failed or failed to export .glb,
+            # autonomously fallback to the verified, deterministic Teddy Silhouette Inflation & Exact UV engine!
+            has_glb = bool(list(exports_dir.glob("*.glb")))
+            if not build_result["success"] or not has_glb:
+                report(3, "Self-Healing", "Procedural assembly encountered topological/syntax limits. Activating Watertight Teddy Silhouette Inflation & Exact UV fallback...")
+                fallback_script = build_silhouette_inflation_script(
+                    image_path=image_path,
+                    exports_dir=exports_dir,
+                    formats=formats,
+                    user_guidance=guidance,
+                )
+                fallback_file = job_dir / "generate_model_fallback.py"
+                fallback_file.write_text(fallback_script, encoding="utf-8")
+                build_result = self.execute_blender_script(fallback_file)
+                (job_dir / "blender_build_fallback.log").write_text(build_result["output"], encoding="utf-8")
 
         # Stage 4: Deliverables Verification
         report(4, "Deliverables", "Verifying export files and metadata...")

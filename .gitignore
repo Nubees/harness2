@@ -21,6 +21,7 @@ dependencies/
 .env
 Project_no2_Image_to_3d_Model/jobs/
 Project_no2_Image_to_3d_Model/uploads/
+Project_no2_Image_to_3d_Model/keys.json
 
 # OS / Editor files
 .DS_Store

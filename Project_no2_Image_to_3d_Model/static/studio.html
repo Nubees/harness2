@@ -57,6 +57,45 @@
       </div>
     </div>
 
+    <!-- Center: Neural 3D Provider Status & Reset Countdown Timers -->
+    <div class="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-950/70 border border-slate-800 shadow-inner">
+      <div class="text-[10px] uppercase font-bold tracking-wider text-slate-500 font-mono pr-0.5">Engines:</div>
+      
+      <!-- Tripo3D -->
+      <div id="provider-pill-tripo" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700/60 text-xs cursor-pointer hover:border-cyan-500/50 transition-all group" title="Tripo3D: Click to configure API Key (Free daily credits)">
+        <span class="w-2 h-2 rounded-full bg-rose-500 ring-2 ring-rose-500/30" id="tripo-dot"></span>
+        <span class="font-bold text-slate-200 group-hover:text-cyan-300">Tripo3D</span>
+        <span class="text-[10px] font-mono text-cyan-400" id="tripo-timer">--:--</span>
+      </div>
+
+      <!-- Meshy -->
+      <div id="provider-pill-meshy" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700/60 text-xs cursor-pointer hover:border-cyan-500/50 transition-all group" title="Meshy.ai: Click to configure API Key (Free monthly refill)">
+        <span class="w-2 h-2 rounded-full bg-rose-500 ring-2 ring-rose-500/30" id="meshy-dot"></span>
+        <span class="font-bold text-slate-200 group-hover:text-cyan-300">Meshy</span>
+        <span class="text-[10px] font-mono text-cyan-400" id="meshy-timer">--:--</span>
+      </div>
+
+      <!-- Hugging Face (TRELLIS) -->
+      <div id="provider-pill-hf" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700/60 text-xs cursor-pointer hover:border-cyan-500/50 transition-all group" title="Microsoft TRELLIS: SOTA NeRF on Hugging Face ZeroGPU">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-emerald-500/30 animate-pulse" id="hf-dot"></span>
+        <span class="font-bold text-slate-200 group-hover:text-cyan-300">HuggingFace</span>
+        <span class="text-[10px] font-mono text-cyan-400" id="hf-timer">ZeroGPU</span>
+      </div>
+
+      <!-- Local Offline (TripoSR / GTX) -->
+      <div id="provider-pill-local" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700/60 text-xs cursor-pointer hover:border-cyan-500/50 transition-all group" title="Local Offline Engine: Ready for GTX Video Card transfer">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-emerald-500/30" id="local-dot"></span>
+        <span class="font-bold text-slate-200 group-hover:text-emerald-300">Local (GTX)</span>
+        <span class="text-[10px] font-mono text-emerald-400" id="local-timer">Always Active</span>
+      </div>
+
+      <!-- Configure Keys Action Button -->
+      <button id="btn-open-keys-modal" class="px-2.5 py-1 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold transition-all flex items-center gap-1 shadow cursor-pointer ml-1" title="Manage API Keys & Free Quotas">
+        <span>🔑</span>
+        <span>Keys</span>
+      </button>
+    </div>
+
     <!-- System Status Badges & Actions -->
     <div class="flex items-center gap-3">
       <!-- New Model Action Button -->
@@ -144,10 +183,18 @@
           </label>
           <div class="relative">
             <select id="preset-select" class="w-full bg-slate-850 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500">
-              <option value="silhouette_inflation" selected>🎈 SOTA Silhouette Inflation (Teddy/EDT + Exact UV Texture)</option>
-              <option value="sota_sculpt">🌟 SOTA Organic Sculpt (OpenVDB Remesh + 3D Splines)</option>
-              <option value="contour_relief">🗺️ SOTA 2.5D Contour Relief (Displacement + Metallic PBR)</option>
-              <option value="fast_procedural">⚡ Fast Procedural (Classic Box & Bevel)</option>
+              <optgroup label="🌐 Cloud Neural AI (Requires Free API Key)">
+                <option value="tripo3d">🔮 Tripo3D Neural AI (Cloud GPU · High Detail 360°)</option>
+                <option value="meshy">✨ Meshy.ai Cloud (PBR Multi-Texture & Neural Mesh)</option>
+                <option value="trellis_hf">⚡ Microsoft TRELLIS (HuggingFace ZeroGPU · SOTA NeRF/Splat)</option>
+              </optgroup>
+              <optgroup label="💻 Local Machine / Offline Engines">
+                <option value="triposr_local">💻 Local Offline TripoSR (GTX / Local Neural Weights)</option>
+                <option value="silhouette_inflation" selected>🎈 SOTA Silhouette Inflation (Teddy/EDT + Exact UV Texture)</option>
+                <option value="sota_sculpt">🌟 SOTA Organic Sculpt (OpenVDB Remesh + 3D Splines)</option>
+                <option value="contour_relief">🗺️ SOTA 2.5D Contour Relief (Displacement + Metallic PBR)</option>
+                <option value="fast_procedural">⚡ Fast Procedural (Classic Box & Bevel)</option>
+              </optgroup>
             </select>
           </div>
           <p id="preset-description" class="text-[10px] text-slate-500 mt-1 font-mono leading-relaxed">
@@ -312,6 +359,120 @@
     </div>
 
   </main>
+
+  <!-- Modal: API Keys & Free Quotas Configuration -->
+  <div id="keys-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
+    <div class="glass-panel w-full max-w-xl rounded-2xl border border-slate-700 bg-slate-900/95 p-6 shadow-2xl space-y-4">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2.5">
+          <span class="text-xl">🔑</span>
+          <div>
+            <h3 class="text-sm font-bold text-slate-100 uppercase tracking-wider">3D AI Engines & Free Quota Keys</h3>
+            <p class="text-[11px] text-slate-400">Configure free API keys for instant cloud neural generation, or use the local offline engine.</p>
+          </div>
+        </div>
+        <button id="btn-close-keys-modal" class="text-slate-400 hover:text-white text-base p-1 cursor-pointer">✕</button>
+      </div>
+
+      <!-- Provider List -->
+      <div class="space-y-3.5 max-h-[62vh] overflow-y-auto pr-1 custom-scrollbar text-xs">
+        <!-- 1. Tripo3D -->
+        <div class="p-3 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-500" id="modal-tripo-dot"></span>
+              <span class="font-bold text-sm text-cyan-300">Tripo3D Neural AI</span>
+            </div>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30" id="modal-tripo-timer">--:--</span>
+          </div>
+          <p class="text-[11px] text-slate-400 leading-relaxed">
+            Fastest cloud 360° neural mesh generator. Provides <strong>300–600 free welcome credits</strong> (~30–60 models) + daily free refill at 00:00 UTC.
+          </p>
+          <div class="space-y-1">
+            <input type="password" id="input-tripo-key" placeholder="Enter Tripo3D API Key (tripo_sk_...)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:border-cyan-400 focus:outline-none" />
+            <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+              <a href="https://platform.tripo3d.ai" target="_blank" class="text-cyan-400 hover:underline flex items-center gap-1">
+                <span>↗</span> Get free key at platform.tripo3d.ai
+              </a>
+              <span class="text-slate-500">Key stored locally in keys.json</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Meshy.ai -->
+        <div class="p-3 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-500" id="modal-meshy-dot"></span>
+              <span class="font-bold text-sm text-amber-300">Meshy.ai PBR Cloud</span>
+            </div>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30" id="modal-meshy-timer">--:--</span>
+          </div>
+          <p class="text-[11px] text-slate-400 leading-relaxed">
+            Multi-layer PBR textures & high geometric detail. Provides <strong>200 free sign-up credits</strong> (~10 models) + 100–200 monthly free reload.
+          </p>
+          <div class="space-y-1">
+            <input type="password" id="input-meshy-key" placeholder="Enter Meshy API Key (msy_...)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:border-amber-400 focus:outline-none" />
+            <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+              <a href="https://www.meshy.ai" target="_blank" class="text-amber-400 hover:underline flex items-center gap-1">
+                <span>↗</span> Get free key at meshy.ai
+              </a>
+              <span class="text-slate-500">Key never expires</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Hugging Face (TRELLIS) -->
+        <div class="p-3 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400" id="modal-hf-dot"></span>
+              <span class="font-bold text-sm text-emerald-300">Microsoft TRELLIS (Hugging Face)</span>
+            </div>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30" id="modal-hf-timer">ZeroGPU Ready</span>
+          </div>
+          <p class="text-[11px] text-slate-400 leading-relaxed">
+            Zero-cost SOTA structured latent diffusion. Runs on shared Nvidia A100 ZeroGPU pools with unlimited free daily turns.
+          </p>
+          <div class="space-y-1">
+            <input type="password" id="input-hf-token" placeholder="Optional Hugging Face User Access Token (hf_...)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:border-emerald-400 focus:outline-none" />
+            <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+              <a href="https://huggingface.co/settings/tokens" target="_blank" class="text-emerald-400 hover:underline flex items-center gap-1">
+                <span>↗</span> Get free user token at huggingface.co/settings/tokens
+              </a>
+              <span class="text-slate-500">Optional (Gives higher ZeroGPU priority)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Local Offline TripoSR (GTX) -->
+        <div class="p-3 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400" id="modal-local-dot"></span>
+              <span class="font-bold text-sm text-blue-300">Local Offline (GTX / Local Weights)</span>
+            </div>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/30" id="modal-local-timer">Always Active</span>
+          </div>
+          <p class="text-[11px] text-slate-400 leading-relaxed" id="modal-local-desc">
+            100% offline with zero cloud dependency. When this project is transferred to a PC with a dedicated NVIDIA GTX/RTX video card, local GPU neural inference activates automatically. On CPU, runs the built-in SOTA Teddy/OpenVDB engine.
+          </p>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="flex items-center justify-end gap-3 pt-2 border-t border-slate-800">
+        <button id="btn-cancel-keys" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer">
+          Close
+        </button>
+        <button id="btn-save-keys" class="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-500/20 cursor-pointer flex items-center gap-2">
+          <span id="save-keys-icon">💾</span>
+          <span id="save-keys-text">Save Keys & Check Quotas</span>
+        </button>
+      </div>
+    </div>
+  </div>
 
   <script type="module">
     import * as THREE from 'three';
@@ -727,6 +888,22 @@
     const presetDesc = document.getElementById('preset-description');
 
     const PRESET_INFO = {
+      'tripo3d': {
+        badge: 'Tripo3D Neural',
+        desc: 'Generates high-fidelity 360° neural manifold mesh via Tripo3D cloud GPU cluster using your free daily credits.'
+      },
+      'meshy': {
+        badge: 'Meshy PBR',
+        desc: 'Reconstructs multi-layer PBR textures and organic neural 3D geometry via Meshy.ai cloud GPUs.'
+      },
+      'trellis_hf': {
+        badge: 'TRELLIS ZeroGPU',
+        desc: 'SOTA structured latent neural diffusion (NeRF & Gaussian Splats) powered by Microsoft TRELLIS on Hugging Face ZeroGPU.'
+      },
+      'triposr_local': {
+        badge: 'Local Offline (GTX)',
+        desc: '100% offline neural reconstruction. Uses local GTX/RTX hardware weights once project is moved to your GPU PC; uses local high-res Teddy engine on CPU.'
+      },
       'silhouette_inflation': {
         badge: 'Teddy Inflation',
         desc: 'Directly inflates 2D image silhouette via harmonic Euclidean Distance Transform with 100% pixel-accurate UV texture mapping.'
@@ -898,6 +1075,174 @@
           el.className = 'text-slate-500';
         }
       }
+    }
+
+    // -------------------------------------------------------------
+    // Neural Providers Status, Countdown Timers & Keys Modal
+    // -------------------------------------------------------------
+    const keysModal = document.getElementById('keys-modal');
+    const openKeysBtn = document.getElementById('btn-open-keys-modal');
+    const closeKeysBtn = document.getElementById('btn-close-keys-modal');
+    const cancelKeysBtn = document.getElementById('btn-cancel-keys');
+    const saveKeysBtn = document.getElementById('btn-save-keys');
+
+    const inputTripo = document.getElementById('input-tripo-key');
+    const inputMeshy = document.getElementById('input-meshy-key');
+    const inputHf = document.getElementById('input-hf-token');
+
+    let providerState = null;
+    let localSecondsRemaining = {
+      tripo3d: 0,
+      meshy: 0
+    };
+
+    function formatSecondsToHMS(sec) {
+      if (sec <= 0) return 'Resetting...';
+      const days = Math.floor(sec / 86400);
+      const hours = Math.floor((sec % 86400) / 3600);
+      const mins = Math.floor((sec % 3600) / 60);
+      const s = Math.floor(sec % 60);
+      if (days > 0) {
+        return `${days}d ${hours}h`;
+      }
+      return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    function setLight(el, isGreen) {
+      if (!el) return;
+      if (isGreen) {
+        el.className = 'w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-emerald-500/40 animate-pulse';
+      } else {
+        el.className = 'w-2 h-2 rounded-full bg-rose-500 ring-2 ring-rose-500/40';
+      }
+    }
+
+    async function fetchProviderStatus() {
+      try {
+        const res = await fetch('/api/providers/status');
+        const data = await res.json();
+        providerState = data;
+
+        const provs = data.providers || {};
+
+        // 1. Tripo3D
+        const tripo = provs.tripo3d || {};
+        localSecondsRemaining.tripo3d = tripo.reset_seconds || 0;
+        setLight(document.getElementById('tripo-dot'), tripo.light === 'green');
+        setLight(document.getElementById('modal-tripo-dot'), tripo.light === 'green');
+        const tripoText = tripo.has_key ? `Ready (${tripo.timer_text})` : formatSecondsToHMS(localSecondsRemaining.tripo3d);
+        document.getElementById('tripo-timer').textContent = tripoText;
+        document.getElementById('modal-tripo-timer').textContent = tripoText;
+
+        // 2. Meshy
+        const meshy = provs.meshy || {};
+        localSecondsRemaining.meshy = meshy.reset_seconds || 0;
+        setLight(document.getElementById('meshy-dot'), meshy.light === 'green');
+        setLight(document.getElementById('modal-meshy-dot'), meshy.light === 'green');
+        const meshyText = meshy.has_key ? `Ready (${meshy.timer_text})` : formatSecondsToHMS(localSecondsRemaining.meshy);
+        document.getElementById('meshy-timer').textContent = meshyText;
+        document.getElementById('modal-meshy-timer').textContent = meshyText;
+
+        // 3. Hugging Face (TRELLIS)
+        const hf = provs.trellis_hf || {};
+        setLight(document.getElementById('hf-dot'), true);
+        setLight(document.getElementById('modal-hf-dot'), true);
+        document.getElementById('hf-timer').textContent = hf.timer_text || 'ZeroGPU';
+        document.getElementById('modal-hf-timer').textContent = hf.timer_text || 'ZeroGPU';
+
+        // 4. Local Offline (GTX)
+        const loc = provs.triposr_local || {};
+        setLight(document.getElementById('local-dot'), true);
+        setLight(document.getElementById('modal-local-dot'), true);
+        document.getElementById('local-timer').textContent = loc.timer_text || 'Always Active';
+        document.getElementById('modal-local-timer').textContent = loc.timer_text || 'Always Active';
+        if (loc.device_name) {
+          const descEl = document.getElementById('modal-local-desc');
+          if (descEl) {
+            descEl.textContent = `Status: ${loc.device_name}. 100% offline with zero cloud dependency. When this project is transferred to a PC with a dedicated NVIDIA GTX/RTX video card, local GPU neural inference activates automatically.`;
+          }
+        }
+      } catch (err) {
+        console.warn('Could not fetch provider status:', err);
+      }
+    }
+
+    // Ticking countdown timer (decrements every second)
+    setInterval(() => {
+      if (providerState && providerState.providers) {
+        const tripo = providerState.providers.tripo3d;
+        if (tripo && !tripo.has_key && localSecondsRemaining.tripo3d > 0) {
+          localSecondsRemaining.tripo3d--;
+          const txt = formatSecondsToHMS(localSecondsRemaining.tripo3d);
+          document.getElementById('tripo-timer').textContent = txt;
+          document.getElementById('modal-tripo-timer').textContent = txt;
+        }
+
+        const meshy = providerState.providers.meshy;
+        if (meshy && !meshy.has_key && localSecondsRemaining.meshy > 0) {
+          localSecondsRemaining.meshy--;
+          const txt = formatSecondsToHMS(localSecondsRemaining.meshy);
+          document.getElementById('meshy-timer').textContent = txt;
+          document.getElementById('modal-meshy-timer').textContent = txt;
+        }
+      }
+    }, 1000);
+
+    // Poll server every 30 seconds
+    setInterval(fetchProviderStatus, 30000);
+    fetchProviderStatus();
+
+    // Modal controls
+    function openModal() {
+      if (keysModal) keysModal.classList.remove('hidden');
+    }
+    function closeModal() {
+      if (keysModal) keysModal.classList.add('hidden');
+    }
+
+    if (openKeysBtn) openKeysBtn.addEventListener('click', openModal);
+    if (closeKeysBtn) closeKeysBtn.addEventListener('click', closeModal);
+    if (cancelKeysBtn) cancelKeysBtn.addEventListener('click', closeModal);
+
+    // Clicking top provider pills also opens the modal!
+    ['provider-pill-tripo', 'provider-pill-meshy', 'provider-pill-hf', 'provider-pill-local'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', openModal);
+    });
+
+    // Save keys
+    if (saveKeysBtn) {
+      saveKeysBtn.addEventListener('click', async () => {
+        const payload = {};
+        if (inputTripo && inputTripo.value.trim()) payload.tripo3d_key = inputTripo.value.trim();
+        if (inputMeshy && inputMeshy.value.trim()) payload.meshy_key = inputMeshy.value.trim();
+        if (inputHf && inputHf.value.trim()) payload.hf_token = inputHf.value.trim();
+
+        document.getElementById('save-keys-icon').textContent = '⏳';
+        document.getElementById('save-keys-text').textContent = 'Saving & Verifying...';
+
+        try {
+          const res = await fetch('/api/providers/keys', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          document.getElementById('save-keys-icon').textContent = '✓';
+          document.getElementById('save-keys-text').textContent = 'Saved!';
+          log('[Omni-3D] API Keys & Provider quotas updated successfully.');
+          await fetchProviderStatus();
+          setTimeout(() => {
+            closeModal();
+            document.getElementById('save-keys-icon').textContent = '💾';
+            document.getElementById('save-keys-text').textContent = 'Save Keys & Check Quotas';
+          }, 600);
+        } catch (err) {
+          alert('Failed to save keys: ' + err.message);
+          document.getElementById('save-keys-icon').textContent = '💾';
+          document.getElementById('save-keys-text').textContent = 'Save Keys & Check Quotas';
+        }
+      });
     }
   </script>
 </body>
