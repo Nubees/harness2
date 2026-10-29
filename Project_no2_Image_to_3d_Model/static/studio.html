@@ -82,6 +82,13 @@
         <span class="text-[10px] font-mono text-cyan-400" id="hf-timer">ZeroGPU</span>
       </div>
 
+      <!-- Modly Local AI -->
+      <div id="provider-pill-modly" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700/60 text-xs cursor-pointer hover:border-cyan-500/50 transition-all group" title="Modly: 100% Local GPU AI (lightningpixel/modly)">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-emerald-500/30" id="modly-dot"></span>
+        <span class="font-bold text-slate-200 group-hover:text-cyan-300">Modly</span>
+        <span class="text-[10px] font-mono text-emerald-400" id="modly-timer">GTX Standby</span>
+      </div>
+
       <!-- Local Offline (TripoSR / GTX) -->
       <div id="provider-pill-local" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700/60 text-xs cursor-pointer hover:border-cyan-500/50 transition-all group" title="Local Offline Engine: Ready for GTX Video Card transfer">
         <span class="w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-emerald-500/30" id="local-dot"></span>
@@ -183,14 +190,15 @@
           </label>
           <div class="relative">
             <select id="preset-select" class="w-full bg-slate-850 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500">
-              <optgroup label="🌐 Cloud Neural AI (Requires Free API Key)">
+              <optgroup label="🌐 Cloud Neural AI (Free Token / API Key)">
+                <option value="trellis_hf" selected>⚡ Microsoft TRELLIS (HuggingFace ZeroGPU · SOTA NeRF 360°)</option>
                 <option value="tripo3d">🔮 Tripo3D Neural AI (Cloud GPU · High Detail 360°)</option>
                 <option value="meshy">✨ Meshy.ai Cloud (Paid Plan Required)</option>
-                <option value="trellis_hf">⚡ Microsoft TRELLIS (HuggingFace ZeroGPU · SOTA NeRF/Splat)</option>
               </optgroup>
               <optgroup label="💻 Local Machine / Offline Engines">
+                <option value="modly_local">🖥️ Modly Local AI (Local GPU · Hunyuan3D-2 / TRELLIS GGUF / TripoSG)</option>
                 <option value="triposr_local">💻 Local Offline TripoSR (GTX / Local Neural Weights)</option>
-                <option value="silhouette_inflation" selected>🎈 SOTA Silhouette Inflation (Teddy/EDT + Exact UV Texture)</option>
+                <option value="silhouette_inflation">🎈 SOTA Silhouette Inflation (Teddy/EDT + Exact UV Texture)</option>
                 <option value="sota_sculpt">🌟 SOTA Organic Sculpt (OpenVDB Remesh + 3D Splines)</option>
                 <option value="contour_relief">🗺️ SOTA 2.5D Contour Relief (Displacement + Metallic PBR)</option>
                 <option value="fast_procedural">⚡ Fast Procedural (Classic Box & Bevel)</option>
@@ -446,7 +454,27 @@
           </div>
         </div>
 
-        <!-- 4. Local Offline TripoSR (GTX) -->
+        <!-- 4. Modly Local AI (lightningpixel/modly) -->
+        <div class="p-3 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400" id="modal-modly-dot"></span>
+              <span class="font-bold text-sm text-cyan-300">Modly Local AI (lightningpixel/modly)</span>
+            </div>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30" id="modal-modly-timer">GTX Standby</span>
+          </div>
+          <p class="text-[11px] text-slate-400 leading-relaxed">
+            Open-source desktop AI running 100% offline on your NVIDIA GPU (8GB+ VRAM). Generates meshes using <strong>Hunyuan3D-2 Mini</strong>, <strong>TripoSG</strong>, and <strong>TRELLIS.2 GGUF</strong> without any cloud tokens or subscriptions.
+          </p>
+          <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+            <a href="https://github.com/lightningpixel/modly" target="_blank" class="text-cyan-400 hover:underline flex items-center gap-1 font-mono">
+              <span>↗</span> github.com/lightningpixel/modly
+            </a>
+            <span class="text-slate-500">Run scripts/setup_modly.bat on your GTX PC</span>
+          </div>
+        </div>
+
+        <!-- 5. Local Offline TripoSR (GTX) -->
         <div class="p-3 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
@@ -900,6 +928,10 @@
         badge: 'TRELLIS ZeroGPU',
         desc: 'SOTA structured latent neural diffusion (NeRF & Gaussian Splats) powered by Microsoft TRELLIS on Hugging Face ZeroGPU.'
       },
+      'modly_local': {
+        badge: 'Modly Local AI',
+        desc: '100% local GPU generation via Modly (lightningpixel/modly). Runs Hunyuan3D-2 & TRELLIS.2 GGUF offline on NVIDIA GPU (8GB+ VRAM).'
+      },
       'triposr_local': {
         badge: 'Local Offline (GTX)',
         desc: '100% offline neural reconstruction. Uses local GTX/RTX hardware weights once project is moved to your GPU PC; uses local high-res Teddy engine on CPU.'
@@ -1020,7 +1052,8 @@
             // Update viewer with newly generated GLB & un-dim download buttons
             if (evt.deliverables && evt.deliverables.glb) {
               const glbUrl = `/files/jobs/${job.job_id}/exports/${evt.deliverables.glb.filename}`;
-              loadGLB(glbUrl, "Generated Asset");
+              const modelTitle = evt.provider_used || "Generated Asset";
+              loadGLB(glbUrl, modelTitle);
               const btn = document.getElementById('btn-dl-glb');
               btn.href = glbUrl;
               btn.download = evt.deliverables.glb.filename;
@@ -1130,7 +1163,7 @@
         localSecondsRemaining.tripo3d = tripo.reset_seconds || 0;
         setLight(document.getElementById('tripo-dot'), tripo.light === 'green');
         setLight(document.getElementById('modal-tripo-dot'), tripo.light === 'green');
-        const tripoText = tripo.has_key ? `Ready (${tripo.timer_text})` : formatSecondsToHMS(localSecondsRemaining.tripo3d);
+        const tripoText = tripo.timer_text || (tripo.has_key ? 'Ready' : formatSecondsToHMS(localSecondsRemaining.tripo3d));
         document.getElementById('tripo-timer').textContent = tripoText;
         document.getElementById('modal-tripo-timer').textContent = tripoText;
 
@@ -1150,7 +1183,14 @@
         document.getElementById('hf-timer').textContent = hf.timer_text || 'ZeroGPU';
         document.getElementById('modal-hf-timer').textContent = hf.timer_text || 'ZeroGPU';
 
-        // 4. Local Offline (GTX)
+        // 4. Modly Local AI
+        const modly = provs.modly_local || {};
+        setLight(document.getElementById('modly-dot'), modly.light === 'green');
+        if (document.getElementById('modal-modly-dot')) setLight(document.getElementById('modal-modly-dot'), modly.light === 'green');
+        if (document.getElementById('modly-timer')) document.getElementById('modly-timer').textContent = modly.timer_text || 'GTX Standby';
+        if (document.getElementById('modal-modly-timer')) document.getElementById('modal-modly-timer').textContent = modly.timer_text || 'GTX Standby';
+
+        // 5. Local Offline (GTX)
         const loc = provs.triposr_local || {};
         setLight(document.getElementById('local-dot'), true);
         setLight(document.getElementById('modal-local-dot'), true);
@@ -1205,7 +1245,7 @@
     if (cancelKeysBtn) cancelKeysBtn.addEventListener('click', closeModal);
 
     // Clicking top provider pills also opens the modal!
-    ['provider-pill-tripo', 'provider-pill-meshy', 'provider-pill-hf', 'provider-pill-local'].forEach(id => {
+    ['provider-pill-tripo', 'provider-pill-meshy', 'provider-pill-hf', 'provider-pill-modly', 'provider-pill-local'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('click', openModal);
     });

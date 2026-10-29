@@ -97,6 +97,37 @@ def check_cuda_status() -> dict:
         return {"has_cuda": False, "device_name": "Standby (Ready for GTX Transfer)"}
 
 
+def check_tripo_balance(key: str) -> dict:
+    """Query live credit balance from Tripo3D API."""
+    if not key:
+        return {"balance": 0, "error": "No key"}
+    try:
+        req = urllib.request.Request(
+            "https://api.tripo3d.ai/v2/openapi/user/balance",
+            headers={"Authorization": f"Bearer {key}", "User-Agent": "Omni-3D-Studio/2.0"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data.get("code") == 0:
+                bal = data.get("data", {}).get("balance", 0)
+                return {"balance": bal, "error": None}
+            return {"balance": 0, "error": data.get("message")}
+    except Exception as exc:
+        return {"balance": 0, "error": str(exc)}
+
+
+def check_modly_status() -> dict:
+    """Check if local Modly FastAPI server (lightningpixel/modly) is active on localhost:8000."""
+    try:
+        req = urllib.request.Request("http://127.0.0.1:8000/docs", method="GET")
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            if resp.status == 200:
+                return {"running": True, "url": "http://127.0.0.1:8000"}
+    except Exception:
+        pass
+    return {"running": False, "url": "http://127.0.0.1:8000"}
+
+
 def get_providers_status() -> dict:
     """Return live status, red/green light indicators, and reset timers for all providers."""
     keys = load_keys()
@@ -107,17 +138,39 @@ def get_providers_status() -> dict:
     sec_daily, str_daily = get_time_until_utc_midnight()
     sec_monthly, str_monthly = get_time_until_month_reset()
     cuda_info = check_cuda_status()
+    modly_info = check_modly_status()
 
-    # 1. Tripo3D Status
+    # 1. Tripo3D Status (with live credit balance check!)
+    tripo_balance = 0
+    tripo_has_credits = False
+    if tripo_key:
+        bal_res = check_tripo_balance(tripo_key)
+        tripo_balance = bal_res.get("balance", 0)
+        tripo_has_credits = tripo_balance > 0
+
+    if not tripo_key:
+        tripo_light = "red"
+        tripo_timer = "Needs Key"
+        tripo_desc = "300–600 welcome credits + daily free refill at 00:00 UTC."
+    elif not tripo_has_credits:
+        tripo_light = "red"
+        tripo_timer = "0 Credits (Claim on Tripo)"
+        tripo_desc = "Tripo API key connected, but account has 0 credits. Claim your free developer credits at platform.tripo3d.ai."
+    else:
+        tripo_light = "green"
+        tripo_timer = f"{tripo_balance} Cr Active"
+        tripo_desc = f"{tripo_balance} credits available. Refills at 00:00 UTC ({str_daily})."
+
     tripo_status = {
         "id": "tripo3d",
         "name": "Tripo3D",
         "has_key": bool(tripo_key),
-        "status": "ready" if tripo_key else "needs_key",
-        "light": "green" if tripo_key else "red",
-        "timer_text": str_daily if not tripo_key else f"Active ({str_daily} reset)",
+        "balance": tripo_balance,
+        "status": "ready" if tripo_has_credits else "needs_credits",
+        "light": tripo_light,
+        "timer_text": tripo_timer,
         "reset_seconds": sec_daily,
-        "desc": "300–600 welcome credits + daily free refill at 00:00 UTC",
+        "desc": tripo_desc,
         "signup_url": "https://platform.tripo3d.ai",
     }
 
@@ -141,13 +194,29 @@ def get_providers_status() -> dict:
         "has_key": bool(hf_token),
         "status": "ready",
         "light": "green",  # HuggingFace ZeroGPU is free even without key, but key gives higher priority
-        "timer_text": "ZeroGPU Ready" if hf_token else "Community Pool",
+        "timer_text": "ZeroGPU SOTA Ready" if hf_token else "Community Pool",
         "reset_seconds": 0,
         "desc": "Microsoft TRELLIS on shared ZeroGPU A100 clusters (Free daily quotas)",
         "signup_url": "https://huggingface.co/settings/tokens",
     }
 
-    # 4. Local Offline TripoSR Status (Ready for GTX Transfer)
+    # 4. Modly Local AI (lightningpixel/modly)
+    modly_status = {
+        "id": "modly_local",
+        "name": "Modly Local AI",
+        "has_key": True,
+        "status": "ready" if modly_info["running"] else "standby",
+        "light": "green" if modly_info["running"] else ("yellow" if cuda_info["has_cuda"] else "green"),
+        "timer_text": "Modly Online (GTX)" if modly_info["running"] else "Standby (GTX 8GB+)",
+        "reset_seconds": 0,
+        "running": modly_info["running"],
+        "has_cuda": cuda_info["has_cuda"],
+        "device_name": cuda_info["device_name"],
+        "desc": "Open-source local desktop AI (lightningpixel/modly). Runs Hunyuan3D-2 & TRELLIS.2 GGUF 100% offline on NVIDIA GPU.",
+        "repo_url": "https://github.com/lightningpixel/modly",
+    }
+
+    # 5. Local Offline TripoSR Status (Ready for GTX Transfer)
     local_status = {
         "id": "triposr_local",
         "name": "Local Offline (GTX)",
@@ -166,6 +235,7 @@ def get_providers_status() -> dict:
             "tripo3d": tripo_status,
             "meshy": meshy_status,
             "trellis_hf": hf_status,
+            "modly_local": modly_status,
             "triposr_local": local_status,
         },
         "keys_configured": {
@@ -242,6 +312,15 @@ def generate_tripo3d_asset(
     if not api_key:
         raise ValueError(
             "Tripo3D API Key is not configured! Please click the '🔑 Keys' button or Tripo3D pill in the top bar to enter your free key (get 300–600 free credits at platform.tripo3d.ai)."
+        )
+
+    # Check live balance before submitting to provide immediate guidance
+    bal_res = check_tripo_balance(api_key)
+    if bal_res.get("balance", 0) <= 0:
+        raise ValueError(
+            "Your Tripo3D API key is connected, but your account currently has 0 credits. "
+            "Please go to https://platform.tripo3d.ai and claim your free developer credits, "
+            "or switch to Microsoft TRELLIS in the dropdown for free unlimited ZeroGPU generations."
         )
 
     def report(msg: str):
@@ -450,96 +529,59 @@ def generate_trellis_hf_asset(
     formats: list[str],
     progress_cb: Callable[[dict], None] | None = None,
 ) -> dict:
-    """Generate 3D model using Microsoft TRELLIS on Hugging Face Spaces."""
+    """Generate 3D model using Microsoft TRELLIS on Hugging Face Spaces via Gradio Client."""
     keys = load_keys()
     hf_token = keys.get("hf_token", "")
+    if hf_token:
+        os.environ["HF_TOKEN"] = hf_token
 
     def report(msg: str):
         if progress_cb:
             progress_cb({"stage": 2, "stage_name": "TRELLIS (HF)", "message": msg})
 
-    report("Connecting to Microsoft TRELLIS space on Hugging Face ZeroGPU cluster...")
-
-    # We call the public Gradio client API on Hugging Face space: JeffreyXiang/TRELLIS
-    space_api_url = "https://jeffreyxiang-trellis.hf.space"
-
-    headers = {"User-Agent": "Omni-3D-Studio/2.0"}
-    if hf_token:
-        headers["Authorization"] = f"Bearer {hf_token}"
-
-    report("Uploading reference image to TRELLIS space...")
-    img_bytes = image_path.read_bytes()
-    b64_data = base64.b64encode(img_bytes).decode("utf-8")
-    ext = image_path.suffix.lstrip(".").lower() or "png"
-    data_uri = f"data:image/{ext};base64,{b64_data}"
-
-    # Call gradio prediction endpoint
-    call_url = f"{space_api_url}/call/image_to_3d"
-    call_payload = {
-        "data": [
-            {"path": data_uri},  # image
-            0,                     # seed
-            7.5,                   # SS guidance strength
-            7.5,                   # SLAT guidance strength
-        ]
-    }
+    report("Connecting to Microsoft TRELLIS on Hugging Face ZeroGPU cluster...")
 
     try:
-        req = urllib.request.Request(
-            call_url,
-            data=json.dumps(call_payload).encode("utf-8"),
-            headers={"Content-Type": "application/json", **headers},
-            method="POST",
+        from gradio_client import Client, handle_file
+        client = Client("trellis-community/TRELLIS", httpx_kwargs={"timeout": 300.0})
+
+        report("Initializing ZeroGPU session...")
+        client.predict(api_name="/start_session")
+
+        report("Preprocessing image foreground contours & mask on ZeroGPU...")
+        prep = client.predict(image=handle_file(str(image_path)), api_name="/preprocess_image")
+
+        report("Synthesizing 360° neural 3D mesh via TRELLIS (NeRF & O-Voxels)...")
+        res = client.predict(
+            image=handle_file(prep),
+            multiimages=[],
+            seed=0,
+            ss_guidance_strength=7.5,
+            ss_sampling_steps=12,
+            slat_guidance_strength=3.0,
+            slat_sampling_steps=12,
+            multiimage_algo="stochastic",
+            mesh_simplify=0.95,
+            texture_size=1024,
+            api_name="/generate_and_extract_glb",
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            init_res = json.loads(resp.read().decode("utf-8"))
-            event_id = init_res.get("event_id")
+
+        glb_source = None
+        if isinstance(res, (list, tuple)) and len(res) >= 3:
+            glb_source = res[2] or res[1]
+        elif isinstance(res, (list, tuple)) and len(res) > 0:
+            glb_source = res[-1]
+
+        if not glb_source or not Path(glb_source).is_file():
+            raise RuntimeError(f"TRELLIS returned unexpected output structure: {res}")
+
+        glb_dest = exports_dir / "model.glb"
+        import shutil
+        shutil.copy2(glb_source, glb_dest)
+        report(f"Neural GLB model downloaded successfully ({round(glb_dest.stat().st_size / (1024*1024), 2)} MB).")
+
     except Exception as exc:
-        raise RuntimeError(
-            f"Failed to connect to Hugging Face TRELLIS space: {exc}. "
-            "Tip: Enter a free Hugging Face User Access Token (huggingface.co/settings/tokens) in the top bar to get priority ZeroGPU access."
-        )
-
-    if not event_id:
-        raise RuntimeError("No event ID returned from TRELLIS ZeroGPU queue.")
-
-    report(f"Queued on Hugging Face ZeroGPU (Event: {event_id[:8]}...). Awaiting GPU slice...")
-
-    # Stream SSE status from Gradio
-    status_url = f"{space_api_url}/call/image_to_3d/{event_id}"
-    glb_url = None
-    t0 = time.time()
-
-    status_req = urllib.request.Request(status_url, headers=headers, method="GET")
-    with urllib.request.urlopen(status_req, timeout=300) as resp:
-        for line in resp:
-            text = line.decode("utf-8", errors="replace").strip()
-            if text.startswith("event: heartbeat"):
-                report("TRELLIS neural diffusion running on ZeroGPU...")
-            elif text.startswith("data:"):
-                try:
-                    payload = json.loads(text[5:].strip())
-                    if isinstance(payload, list) and len(payload) > 0:
-                        # Output contains file info
-                        first = payload[0]
-                        if isinstance(first, dict) and "url" in first:
-                            glb_url = first["url"]
-                            break
-                        elif isinstance(first, str) and first.endswith(".glb"):
-                            glb_url = first if first.startswith("http") else f"{space_api_url}/file={first}"
-                            break
-                except Exception:
-                    pass
-            if time.time() - t0 > 300:
-                break
-
-    if not glb_url:
-        raise TimeoutError("Hugging Face TRELLIS run timed out or GPU pool busy. Please retry in a few moments.")
-
-    report("Downloading SOTA neural mesh from TRELLIS...")
-    glb_dest = exports_dir / "model.glb"
-    with urllib.request.urlopen(urllib.request.Request(glb_url, headers=headers), timeout=60) as resp:
-        glb_dest.write_bytes(resp.read())
+        raise RuntimeError(f"Hugging Face TRELLIS error: {exc}")
 
     # Export formats
     if any(f in formats for f in ("obj", "stl", "fbx")):
@@ -550,7 +592,65 @@ def generate_trellis_hf_asset(
 
 
 # ==============================================================================
-# 4. LOCAL OFFLINE TRIPOSR (GTX / LOCAL NEURAL ENGINE)
+# 4. MODLY LOCAL AI GENERATOR (lightningpixel/modly)
+# ==============================================================================
+def generate_modly_asset(
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    progress_cb: Callable[[dict], None] | None = None,
+) -> dict:
+    """Generate 3D model using Modly Local AI (lightningpixel/modly)."""
+    def report(msg: str):
+        if progress_cb:
+            progress_cb({"stage": 2, "stage_name": "Modly Local AI", "message": msg})
+
+    status = check_modly_status()
+    glb_dest = exports_dir / "model.glb"
+    if status["running"]:
+        report("Connecting to active local Modly FastAPI server on localhost:8000...")
+        try:
+            img_bytes = image_path.read_bytes()
+            b64_data = base64.b64encode(img_bytes).decode("utf-8")
+            ext = image_path.suffix.lstrip(".").lower() or "png"
+            payload = {"image": f"data:image/{ext};base64,{b64_data}"}
+            req = urllib.request.Request(
+                "http://127.0.0.1:8000/api/generate",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            glb_url = data.get("glb_url") or data.get("model_path")
+            with urllib.request.urlopen(glb_url) as resp:
+                glb_dest.write_bytes(resp.read())
+            report("Modly neural model downloaded successfully!")
+        except Exception as exc:
+            raise RuntimeError(f"Modly generation failed: {exc}")
+    else:
+        cuda = check_cuda_status()
+        if not cuda["has_cuda"]:
+            raise RuntimeError(
+                "Modly requires a dedicated NVIDIA GPU (8GB+ VRAM). "
+                "Hardware diagnosis: NVIDIA CUDA GPU was not detected on this computer. "
+                "To use Modly: transfer this project to your PC with a GTX video card and run Modly's launcher.bat."
+            )
+        else:
+            raise RuntimeError(
+                "Modly local server is not running on localhost:8000. "
+                "Please start Modly by running launcher.bat in the modly folder, or launch 'python api/server.py'."
+            )
+
+    if any(f in formats for f in ("obj", "stl", "fbx")):
+        report("Converting Modly GLB to OBJ, STL, and FBX deliverables via Blender 5.2 LTS...")
+        convert_glb_to_formats(glb_dest, exports_dir, formats)
+
+    return {"success": True, "deliverables": {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}}
+
+
+# ==============================================================================
+# 5. LOCAL OFFLINE TRIPOSR (GTX / LOCAL NEURAL ENGINE)
 # ==============================================================================
 def generate_triposr_local_asset(
     image_path: Path,

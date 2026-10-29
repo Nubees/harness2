@@ -1123,7 +1123,8 @@ FINAL REQUIREMENTS (CRITICAL):
                 progress_cb(data)
 
         # Stage 1 & 2: Route by Mesh Architecture Preset / Provider Engine
-        if quality_preset in ("tripo3d", "meshy", "trellis_hf", "triposr_local"):
+        actual_provider = quality_preset
+        if quality_preset in ("tripo3d", "meshy", "trellis_hf", "modly_local", "triposr_local"):
             import providers
             report(1, "Perception", f"Dispatching image ({image_path.name}) to {quality_preset.upper()} engine...")
             script_file = job_dir / f"{quality_preset}_job.json"
@@ -1133,12 +1134,19 @@ FINAL REQUIREMENTS (CRITICAL):
             try:
                 if quality_preset == "tripo3d":
                     providers.generate_tripo3d_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
+                    actual_provider = "Tripo3D Cloud Neural Engine"
                 elif quality_preset == "meshy":
                     providers.generate_meshy_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
+                    actual_provider = "Meshy.ai PBR Cloud Engine"
                 elif quality_preset == "trellis_hf":
                     providers.generate_trellis_hf_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
+                    actual_provider = "Microsoft TRELLIS (Hugging Face ZeroGPU)"
+                elif quality_preset == "modly_local":
+                    providers.generate_modly_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
+                    actual_provider = "Modly Local AI Engine (GTX)"
                 elif quality_preset == "triposr_local":
                     providers.generate_triposr_local_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
+                    actual_provider = "Local Offline TripoSR (GTX)"
 
                 build_result = {
                     "success": True,
@@ -1147,8 +1155,8 @@ FINAL REQUIREMENTS (CRITICAL):
                 }
             except Exception as prov_err:
                 err_text = str(prov_err)
-                report(3, "Provider Warning", f"{quality_preset.upper()}: {err_text}")
-                report(3, "Self-Healing", "Activating Local Offline Watertight Teddy Silhouette & UV Engine as safety net...")
+                report(3, "Provider Error", f"⚠️ {quality_preset.upper()} FAILED: {err_text}")
+                report(3, "Self-Healing", "Notice: Activating Local Watertight Teddy Silhouette & UV Engine as safety preview...")
                 fallback_script = build_silhouette_inflation_script(
                     image_path=image_path,
                     exports_dir=exports_dir,
@@ -1159,7 +1167,9 @@ FINAL REQUIREMENTS (CRITICAL):
                 fallback_file.write_text(fallback_script, encoding="utf-8")
                 build_result = self.execute_blender_script(fallback_file)
                 (job_dir / "blender_build_fallback.log").write_text(build_result["output"], encoding="utf-8")
+                actual_provider = f"Local Fallback ({quality_preset.upper()} Error: {err_text})"
         elif quality_preset == "silhouette_inflation":
+            actual_provider = "SOTA Teddy Silhouette Inflation"
             report(1, "Perception", f"Extracting 2D silhouette contours from {image_path.name} (Teddy EDT Architecture)...")
             time.sleep(0.3)
             report(2, "Synthesis", "Synthesizing harmonic EDT distance transform mesh & frontal UV projection...")
@@ -1252,7 +1262,7 @@ FINAL REQUIREMENTS (CRITICAL):
                 report(2, "Synthesis", "Procedural code synthesis complete.")
 
         # Stage 3: Headless Blender Compilation (only for procedural/script presets)
-        if quality_preset not in ("tripo3d", "meshy", "trellis_hf", "triposr_local"):
+        if quality_preset not in ("tripo3d", "meshy", "trellis_hf", "modly_local", "triposr_local"):
             report(3, "Blender Compile", "Executing script headlessly in Blender 5.2 LTS...")
             build_result = self.execute_blender_script(script_file)
             (job_dir / "blender_build.log").write_text(build_result["output"], encoding="utf-8")
@@ -1334,10 +1344,11 @@ CRITICAL: Do NOT output any reasoning, commentary, or text before or after the c
         preview_img = exports_dir / "preview.png"
         preview_url = f"/files/jobs/{job_dir.name}/exports/{preview_img.name}" if preview_img.is_file() else None
 
-        report(5, "Complete", f"Successfully generated 3D model with {len(deliverables)} formats.", {
+        report(5, "Complete", f"Successfully generated 3D model with {len(deliverables)} formats. Engine: {actual_provider}", {
             "deliverables": deliverables,
             "preview_url": preview_url,
             "elapsed_sec": build_result["elapsed_sec"],
+            "provider_used": actual_provider,
         })
 
         return {
