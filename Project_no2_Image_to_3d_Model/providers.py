@@ -128,10 +128,10 @@ def get_providers_status() -> dict:
         "has_key": bool(meshy_key),
         "status": "ready" if meshy_key else "needs_key",
         "light": "green" if meshy_key else "red",
-        "timer_text": str_monthly if not meshy_key else f"Active ({str_monthly} reset)",
-        "reset_seconds": sec_monthly,
-        "desc": "200 welcome credits + 100–200 credits monthly refill",
-        "signup_url": "https://www.meshy.ai",
+        "timer_text": f"Active ({str_monthly} reset)" if meshy_key else "Paid Plan Req.",
+        "reset_seconds": sec_monthly if meshy_key else 0,
+        "desc": "Meshy restricts API keys to paid Pro plans ($20+/mo). Free credits on meshy.ai are web-app only.",
+        "signup_url": "https://www.meshy.ai/pricing",
     }
 
     # 3. Hugging Face (TRELLIS) Status
@@ -349,7 +349,7 @@ def generate_meshy_asset(
     api_key = keys.get("meshy_key", "")
     if not api_key:
         raise ValueError(
-            "Meshy.ai API Key is not configured! Please click the '🔑 Keys' button or Meshy pill in the top bar to enter your free key (get 200 free credits at meshy.ai)."
+            "Meshy.ai API Key is not configured. Note: Meshy does not provide API keys on free accounts (their 100-200 credits are web-only and API keys require a paid Pro subscription). For free cloud generation, use Tripo3D (platform.tripo3d.ai) or Hugging Face TRELLIS."
         )
 
     def report(msg: str):

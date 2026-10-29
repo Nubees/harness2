@@ -69,10 +69,10 @@
       </div>
 
       <!-- Meshy -->
-      <div id="provider-pill-meshy" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700/60 text-xs cursor-pointer hover:border-cyan-500/50 transition-all group" title="Meshy.ai: Click to configure API Key (Free monthly refill)">
+      <div id="provider-pill-meshy" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700/60 text-xs cursor-pointer hover:border-cyan-500/50 transition-all group" title="Meshy.ai: Paid API Subscription Required ($20/mo)">
         <span class="w-2 h-2 rounded-full bg-rose-500 ring-2 ring-rose-500/30" id="meshy-dot"></span>
         <span class="font-bold text-slate-200 group-hover:text-cyan-300">Meshy</span>
-        <span class="text-[10px] font-mono text-cyan-400" id="meshy-timer">--:--</span>
+        <span class="text-[10px] font-mono text-slate-400" id="meshy-timer">Paid Req.</span>
       </div>
 
       <!-- Hugging Face (TRELLIS) -->
@@ -185,7 +185,7 @@
             <select id="preset-select" class="w-full bg-slate-850 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500">
               <optgroup label="🌐 Cloud Neural AI (Requires Free API Key)">
                 <option value="tripo3d">🔮 Tripo3D Neural AI (Cloud GPU · High Detail 360°)</option>
-                <option value="meshy">✨ Meshy.ai Cloud (PBR Multi-Texture & Neural Mesh)</option>
+                <option value="meshy">✨ Meshy.ai Cloud (Paid Plan Required)</option>
                 <option value="trellis_hf">⚡ Microsoft TRELLIS (HuggingFace ZeroGPU · SOTA NeRF/Splat)</option>
               </optgroup>
               <optgroup label="💻 Local Machine / Offline Engines">
@@ -407,18 +407,18 @@
               <span class="w-2.5 h-2.5 rounded-full bg-rose-500" id="modal-meshy-dot"></span>
               <span class="font-bold text-sm text-amber-300">Meshy.ai PBR Cloud</span>
             </div>
-            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30" id="modal-meshy-timer">--:--</span>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30" id="modal-meshy-timer">Paid Plan Required</span>
           </div>
           <p class="text-[11px] text-slate-400 leading-relaxed">
-            Multi-layer PBR textures & high geometric detail. Provides <strong>200 free sign-up credits</strong> (~10 models) + 100–200 monthly free reload.
+            ⚠️ <strong>Meshy API Policy:</strong> Meshy does <em>not</em> provide API keys for free tier accounts. Free credits on meshy.ai are strictly locked to their web app browser UI. API keys require their paid Pro plan ($20+/mo).
           </p>
           <div class="space-y-1">
-            <input type="password" id="input-meshy-key" placeholder="Enter Meshy API Key (msy_...)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:border-amber-400 focus:outline-none" />
+            <input type="password" id="input-meshy-key" placeholder="Enter Meshy API Key (msy_... if you have a paid Pro plan)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:border-amber-400 focus:outline-none" />
             <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
-              <a href="https://www.meshy.ai" target="_blank" class="text-amber-400 hover:underline flex items-center gap-1">
-                <span>↗</span> Get free key at meshy.ai
+              <a href="https://www.meshy.ai/pricing" target="_blank" class="text-amber-400 hover:underline flex items-center gap-1">
+                <span>↗</span> View Meshy Pro Plans at meshy.ai/pricing
               </a>
-              <span class="text-slate-500">Key never expires</span>
+              <span class="text-slate-500">Requires paid subscription</span>
             </div>
           </div>
         </div>
@@ -893,8 +893,8 @@
         desc: 'Generates high-fidelity 360° neural manifold mesh via Tripo3D cloud GPU cluster using your free daily credits.'
       },
       'meshy': {
-        badge: 'Meshy PBR',
-        desc: 'Reconstructs multi-layer PBR textures and organic neural 3D geometry via Meshy.ai cloud GPUs.'
+        badge: 'Meshy (Paid)',
+        desc: 'Reconstructs multi-layer PBR textures and organic geometry via Meshy.ai cloud GPUs (Requires paid Meshy Pro API subscription; free credits are web-only).'
       },
       'trellis_hf': {
         badge: 'TRELLIS ZeroGPU',
@@ -1139,7 +1139,7 @@
         localSecondsRemaining.meshy = meshy.reset_seconds || 0;
         setLight(document.getElementById('meshy-dot'), meshy.light === 'green');
         setLight(document.getElementById('modal-meshy-dot'), meshy.light === 'green');
-        const meshyText = meshy.has_key ? `Ready (${meshy.timer_text})` : formatSecondsToHMS(localSecondsRemaining.meshy);
+        const meshyText = meshy.has_key ? `Ready (${meshy.timer_text})` : (meshy.timer_text || 'Paid Plan Req.');
         document.getElementById('meshy-timer').textContent = meshyText;
         document.getElementById('modal-meshy-timer').textContent = meshyText;
 
