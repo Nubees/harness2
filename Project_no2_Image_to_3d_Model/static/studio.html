@@ -368,94 +368,106 @@
 
   </main>
 
-  <!-- Modal: API Keys & Free Quotas Configuration -->
-  <div id="keys-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
-    <div class="glass-panel w-full max-w-xl rounded-2xl border border-slate-700 bg-slate-900/95 p-6 shadow-2xl space-y-4">
-      <!-- Modal Header -->
-      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-        <div class="flex items-center gap-2.5">
-          <span class="text-xl">🔑</span>
+  <!-- Modal: API Keys & Free Quotas Configuration (Scrollable with Multi-Key Dynamic Rows) -->
+  <div id="keys-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-3 sm:p-5">
+    <div class="glass-panel w-full max-w-2xl max-h-[88vh] flex flex-col rounded-2xl border border-slate-700 bg-slate-900/98 shadow-2xl overflow-hidden">
+      <!-- Modal Header (Fixed / Shrink-0) -->
+      <div class="flex items-center justify-between border-b border-slate-800 p-5 shrink-0 bg-slate-900/95">
+        <div class="flex items-center gap-3">
+          <span class="text-2xl">🔑</span>
           <div>
-            <h3 class="text-sm font-bold text-slate-100 uppercase tracking-wider">3D AI Engines & Free Quota Keys</h3>
-            <p class="text-[11px] text-slate-400">Configure free API keys for instant cloud neural generation, or use the local offline engine.</p>
+            <h3 class="text-sm font-bold text-slate-100 uppercase tracking-wider">3D AI Engines & Multi-Key Pools</h3>
+            <p class="text-[11px] text-slate-400">Add multiple free API keys. Auto-switches to the next key when one is depleted, then loops back.</p>
           </div>
         </div>
-        <button id="btn-close-keys-modal" class="text-slate-400 hover:text-white text-base p-1 cursor-pointer">✕</button>
+        <button id="btn-close-keys-modal" class="text-slate-400 hover:text-white text-lg p-1.5 rounded-lg hover:bg-slate-800 transition-all cursor-pointer">✕</button>
       </div>
 
-      <!-- Provider List -->
-      <div class="space-y-3.5 max-h-[62vh] overflow-y-auto pr-1 custom-scrollbar text-xs">
+      <!-- Provider List (Scrollable flex-1) -->
+      <div class="flex-1 overflow-y-auto pr-2 p-5 space-y-4 custom-scrollbar text-xs" id="keys-modal-scroll">
         <!-- 1. Tripo3D -->
-        <div class="p-3 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2">
+        <div class="p-3.5 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2.5">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-rose-500" id="modal-tripo-dot"></span>
               <span class="font-bold text-sm text-cyan-300">Tripo3D Neural AI</span>
             </div>
-            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30" id="modal-tripo-timer">--:--</span>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30" id="modal-tripo-timer">--:--</span>
+              <button type="button" id="btn-add-tripo-key" class="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer">
+                <span>+</span> Add Key
+              </button>
+            </div>
           </div>
           <p class="text-[11px] text-slate-400 leading-relaxed">
-            Fastest cloud 360° neural mesh generator. Provides <strong>300–600 free welcome credits</strong> (~30–60 models) + daily free refill at 00:00 UTC.
+            Fastest cloud 360° neural mesh generator. Provides <strong>300–600 free welcome credits</strong> (~30–60 models) per account + daily refill.
           </p>
-          <div class="space-y-1">
-            <input type="password" id="input-tripo-key" placeholder="Enter Tripo3D API Key (tripo_sk_...)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:border-cyan-400 focus:outline-none" />
-            <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
-              <a href="https://platform.tripo3d.ai" target="_blank" class="text-cyan-400 hover:underline flex items-center gap-1">
-                <span>↗</span> Get free key at platform.tripo3d.ai
-              </a>
-              <span class="text-slate-500">Key stored locally in keys.json</span>
-            </div>
+          <!-- Dynamic Keys Container for Tripo3D -->
+          <div id="tripo-keys-container" class="space-y-1.5 pt-0.5"></div>
+          <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/80">
+            <a href="https://platform.tripo3d.ai" target="_blank" class="text-cyan-400 hover:underline flex items-center gap-1">
+              <span>↗</span> Claim free keys at platform.tripo3d.ai
+            </a>
+            <span class="text-slate-500 font-mono">Auto-rotates & loops back</span>
           </div>
         </div>
 
         <!-- 2. Meshy.ai -->
-        <div class="p-3 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2">
+        <div class="p-3.5 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2.5">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-rose-500" id="modal-meshy-dot"></span>
               <span class="font-bold text-sm text-amber-300">Meshy.ai PBR Cloud</span>
             </div>
-            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30" id="modal-meshy-timer">Paid Plan Required</span>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30" id="modal-meshy-timer">Paid Plan Required</span>
+              <button type="button" id="btn-add-meshy-key" class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer">
+                <span>+</span> Add Key
+              </button>
+            </div>
           </div>
           <p class="text-[11px] text-slate-400 leading-relaxed">
-            ⚠️ <strong>Meshy API Policy:</strong> Meshy does <em>not</em> provide API keys for free tier accounts. Free credits on meshy.ai are strictly locked to their web app browser UI. API keys require their paid Pro plan ($20+/mo).
+            ⚠️ <strong>Meshy API Policy:</strong> Meshy restricts API keys to paid Pro plans ($20+/mo). Multiple keys rotate automatically when quota limits are reached.
           </p>
-          <div class="space-y-1">
-            <input type="password" id="input-meshy-key" placeholder="Enter Meshy API Key (msy_... if you have a paid Pro plan)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:border-amber-400 focus:outline-none" />
-            <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
-              <a href="https://www.meshy.ai/pricing" target="_blank" class="text-amber-400 hover:underline flex items-center gap-1">
-                <span>↗</span> View Meshy Pro Plans at meshy.ai/pricing
-              </a>
-              <span class="text-slate-500">Requires paid subscription</span>
-            </div>
+          <!-- Dynamic Keys Container for Meshy -->
+          <div id="meshy-keys-container" class="space-y-1.5 pt-0.5"></div>
+          <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/80">
+            <a href="https://www.meshy.ai/pricing" target="_blank" class="text-amber-400 hover:underline flex items-center gap-1">
+              <span>↗</span> View Meshy Pro Plans at meshy.ai/pricing
+            </a>
+            <span class="text-slate-500 font-mono">Requires paid subscription</span>
           </div>
         </div>
 
         <!-- 3. Hugging Face (TRELLIS) -->
-        <div class="p-3 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2">
+        <div class="p-3.5 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2.5">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-emerald-400" id="modal-hf-dot"></span>
               <span class="font-bold text-sm text-emerald-300">Microsoft TRELLIS (Hugging Face)</span>
             </div>
-            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30" id="modal-hf-timer">ZeroGPU Ready</span>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30" id="modal-hf-timer">ZeroGPU Ready</span>
+              <button type="button" id="btn-add-hf-key" class="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer">
+                <span>+</span> Add Token
+              </button>
+            </div>
           </div>
           <p class="text-[11px] text-slate-400 leading-relaxed">
-            Zero-cost SOTA structured latent diffusion. Runs on shared Nvidia A100 ZeroGPU pools with unlimited free daily turns.
+            Zero-cost SOTA structured latent diffusion. Runs on shared Nvidia A100 ZeroGPU pools with unlimited free turns. Adding HF user tokens gives higher queue priority; rotates across tokens if rate-limited.
           </p>
-          <div class="space-y-1">
-            <input type="password" id="input-hf-token" placeholder="Optional Hugging Face User Access Token (hf_...)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:border-emerald-400 focus:outline-none" />
-            <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
-              <a href="https://huggingface.co/settings/tokens" target="_blank" class="text-emerald-400 hover:underline flex items-center gap-1">
-                <span>↗</span> Get free user token at huggingface.co/settings/tokens
-              </a>
-              <span class="text-slate-500">Optional (Gives higher ZeroGPU priority)</span>
-            </div>
+          <!-- Dynamic Keys Container for HF -->
+          <div id="hf-keys-container" class="space-y-1.5 pt-0.5"></div>
+          <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/80">
+            <a href="https://huggingface.co/settings/tokens" target="_blank" class="text-emerald-400 hover:underline flex items-center gap-1">
+              <span>↗</span> Get free user tokens at huggingface.co/settings/tokens
+            </a>
+            <span class="text-slate-500 font-mono">Multi-token pool</span>
           </div>
         </div>
 
         <!-- 4. Modly Local AI (lightningpixel/modly) -->
-        <div class="p-3 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2">
+        <div class="p-3.5 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-emerald-400" id="modal-modly-dot"></span>
@@ -466,16 +478,16 @@
           <p class="text-[11px] text-slate-400 leading-relaxed">
             Open-source desktop AI running 100% offline on your NVIDIA GPU (8GB+ VRAM). Generates meshes using <strong>Hunyuan3D-2 Mini</strong>, <strong>TripoSG</strong>, and <strong>TRELLIS.2 GGUF</strong> without any cloud tokens or subscriptions.
           </p>
-          <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+          <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/80">
             <a href="https://github.com/lightningpixel/modly" target="_blank" class="text-cyan-400 hover:underline flex items-center gap-1 font-mono">
               <span>↗</span> github.com/lightningpixel/modly
             </a>
-            <span class="text-slate-500">Run scripts/setup_modly.bat on your GTX PC</span>
+            <span class="text-slate-500 font-mono">Run scripts/setup_modly.bat on GTX PC</span>
           </div>
         </div>
 
         <!-- 5. Local Offline TripoSR (GTX) -->
-        <div class="p-3 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2">
+        <div class="p-3.5 rounded-xl bg-slate-850 border border-slate-700/80 space-y-2">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-emerald-400" id="modal-local-dot"></span>
@@ -489,15 +501,21 @@
         </div>
       </div>
 
-      <!-- Modal Footer -->
-      <div class="flex items-center justify-end gap-3 pt-2 border-t border-slate-800">
-        <button id="btn-cancel-keys" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer">
-          Close
-        </button>
-        <button id="btn-save-keys" class="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-500/20 cursor-pointer flex items-center gap-2">
-          <span id="save-keys-icon">💾</span>
-          <span id="save-keys-text">Save Keys & Check Quotas</span>
-        </button>
+      <!-- Modal Footer (Fixed / Shrink-0) -->
+      <div class="flex items-center justify-between p-4 border-t border-slate-800 bg-slate-900/95 shrink-0">
+        <div class="text-[11px] text-slate-400 flex items-center gap-1.5 font-mono">
+          <span class="text-cyan-400">🔄</span>
+          <span>Auto-switches to next key on depletion & loops back</span>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <button id="btn-cancel-keys" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer transition-all">
+            Close
+          </button>
+          <button id="btn-save-keys" class="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-500/20 cursor-pointer flex items-center gap-2 transition-all">
+            <span id="save-keys-icon">💾</span>
+            <span id="save-keys-text">Save Keys & Check Quotas</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -1111,17 +1129,13 @@
     }
 
     // -------------------------------------------------------------
-    // Neural Providers Status, Countdown Timers & Keys Modal
+    // Neural Providers Status, Countdown Timers & Multi-Key Pool UI
     // -------------------------------------------------------------
     const keysModal = document.getElementById('keys-modal');
     const openKeysBtn = document.getElementById('btn-open-keys-modal');
     const closeKeysBtn = document.getElementById('btn-close-keys-modal');
     const cancelKeysBtn = document.getElementById('btn-cancel-keys');
     const saveKeysBtn = document.getElementById('btn-save-keys');
-
-    const inputTripo = document.getElementById('input-tripo-key');
-    const inputMeshy = document.getElementById('input-meshy-key');
-    const inputHf = document.getElementById('input-hf-token');
 
     let providerState = null;
     let localSecondsRemaining = {
@@ -1150,13 +1164,150 @@
       }
     }
 
-    async function fetchProviderStatus() {
+    // Dynamic Multi-Key DOM Generator
+    function createKeyRow(providerId, keyValue = '', index = 1, isActive = false, balance = null, placeholder = '') {
+      const row = document.createElement('div');
+      row.className = 'key-row flex items-center gap-2 p-1.5 rounded-lg bg-slate-900 border border-slate-750 hover:border-slate-600 transition-all group';
+
+      // Index tag
+      const idxSpan = document.createElement('span');
+      idxSpan.className = 'key-index text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 shrink-0';
+      idxSpan.textContent = `Key #${index}`;
+      row.appendChild(idxSpan);
+
+      // Active indicator badge
+      if (isActive) {
+        const actBadge = document.createElement('span');
+        actBadge.className = 'key-active-badge text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shrink-0';
+        actBadge.textContent = 'ACTIVE';
+        actBadge.title = 'Current active key in rotation pool';
+        row.appendChild(actBadge);
+      }
+
+      // Input field
+      const inp = document.createElement('input');
+      inp.type = 'password';
+      inp.value = keyValue;
+      inp.placeholder = placeholder || 'Paste API key here...';
+      inp.className = 'key-input flex-1 bg-transparent border-0 text-xs text-slate-100 font-mono focus:outline-none focus:ring-0 px-1.5 placeholder-slate-600 min-w-[120px]';
+      row.appendChild(inp);
+
+      // Eye toggle visibility button (👁️)
+      const toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.className = 'text-slate-500 hover:text-slate-200 px-1 text-xs cursor-pointer select-none transition-colors';
+      toggleBtn.title = 'Show/Hide key characters';
+      toggleBtn.textContent = '👁️';
+      toggleBtn.onclick = () => {
+        inp.type = inp.type === 'password' ? 'text' : 'password';
+      };
+      row.appendChild(toggleBtn);
+
+      // Balance Badge (for Tripo3D or balance-aware providers)
+      if (balance !== null && balance !== undefined) {
+        const balBadge = document.createElement('span');
+        if (balance > 0) {
+          balBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0';
+          balBadge.textContent = `${balance} Cr`;
+          balBadge.title = `${balance} credits remaining on this account`;
+        } else {
+          balBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30 shrink-0';
+          balBadge.textContent = '0 Cr (Depleted)';
+          balBadge.title = 'Account has 0 credits (will auto-skip to next key)';
+        }
+        row.appendChild(balBadge);
+      }
+
+      // Remove row button (✕)
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'text-slate-500 hover:text-red-400 px-1.5 py-0.5 text-xs font-bold cursor-pointer rounded hover:bg-red-500/10 transition-all';
+      removeBtn.title = 'Delete this key from pool';
+      removeBtn.textContent = '✕';
+      removeBtn.onclick = () => {
+        const parent = row.parentElement;
+        if (parent.children.length > 1) {
+          row.remove();
+          Array.from(parent.children).forEach((child, i) => {
+            const span = child.querySelector('.key-index');
+            if (span) span.textContent = `Key #${i + 1}`;
+          });
+        } else {
+          inp.value = '';
+        }
+      };
+      row.appendChild(removeBtn);
+
+      return row;
+    }
+
+    function renderProviderPool(containerId, providerId, keyPool, activeIdx, defaultPlaceholder) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (!keyPool || keyPool.length === 0) {
+        container.appendChild(createKeyRow(providerId, '', 1, false, null, defaultPlaceholder));
+        return;
+      }
+
+      keyPool.forEach((item, i) => {
+        const k = typeof item === 'string' ? item : item.key;
+        const isAct = typeof item === 'object' ? item.is_active : (i === activeIdx);
+        const bal = (typeof item === 'object' && item.balance !== undefined) ? item.balance : null;
+        container.appendChild(createKeyRow(providerId, k, i + 1, isAct, bal, defaultPlaceholder));
+      });
+    }
+
+    // Attach + Add Key button handlers
+    document.getElementById('btn-add-tripo-key')?.addEventListener('click', () => {
+      const c = document.getElementById('tripo-keys-container');
+      const nextIdx = c.children.length + 1;
+      const newRow = createKeyRow('tripo3d', '', nextIdx, false, null, 'Enter Tripo3D API Key (tripo_sk_...)');
+      c.appendChild(newRow);
+      const input = newRow.querySelector('input');
+      if (input) input.focus();
+    });
+
+    document.getElementById('btn-add-meshy-key')?.addEventListener('click', () => {
+      const c = document.getElementById('meshy-keys-container');
+      const nextIdx = c.children.length + 1;
+      const newRow = createKeyRow('meshy', '', nextIdx, false, null, 'Enter Meshy API Key (msy_...)');
+      c.appendChild(newRow);
+      const input = newRow.querySelector('input');
+      if (input) input.focus();
+    });
+
+    document.getElementById('btn-add-hf-key')?.addEventListener('click', () => {
+      const c = document.getElementById('hf-keys-container');
+      const nextIdx = c.children.length + 1;
+      const newRow = createKeyRow('trellis_hf', '', nextIdx, false, null, 'Optional Hugging Face User Access Token (hf_...)');
+      c.appendChild(newRow);
+      const input = newRow.querySelector('input');
+      if (input) input.focus();
+    });
+
+    function getKeysFromContainer(containerId) {
+      const container = document.getElementById(containerId);
+      if (!container) return [];
+      const inputs = container.querySelectorAll('.key-input');
+      const keys = [];
+      inputs.forEach(inp => {
+        const v = inp.value.trim();
+        if (v) keys.push(v);
+      });
+      return keys;
+    }
+
+    async function fetchProviderStatus(shouldRenderInputs = true) {
       try {
         const res = await fetch('/api/providers/status');
         const data = await res.json();
         providerState = data;
 
         const provs = data.providers || {};
+        const pools = data.pools || {};
+        const activeIdxs = data.active_indices || {};
 
         // 1. Tripo3D
         const tripo = provs.tripo3d || {};
@@ -1172,7 +1323,7 @@
         localSecondsRemaining.meshy = meshy.reset_seconds || 0;
         setLight(document.getElementById('meshy-dot'), meshy.light === 'green');
         setLight(document.getElementById('modal-meshy-dot'), meshy.light === 'green');
-        const meshyText = meshy.has_key ? `Ready (${meshy.timer_text})` : (meshy.timer_text || 'Paid Plan Req.');
+        const meshyText = meshy.has_key ? (meshy.timer_text || 'Active') : 'Paid Plan Req.';
         document.getElementById('meshy-timer').textContent = meshyText;
         document.getElementById('modal-meshy-timer').textContent = meshyText;
 
@@ -1202,6 +1353,13 @@
             descEl.textContent = `Status: ${loc.device_name}. 100% offline with zero cloud dependency. When this project is transferred to a PC with a dedicated NVIDIA GTX/RTX video card, local GPU neural inference activates automatically.`;
           }
         }
+
+        // Render dynamic inputs if requested (e.g. initial load or modal open)
+        if (shouldRenderInputs) {
+          renderProviderPool('tripo-keys-container', 'tripo3d', pools.tripo3d, activeIdxs.tripo3d, 'Enter Tripo3D API Key (tripo_sk_...)');
+          renderProviderPool('meshy-keys-container', 'meshy', pools.meshy, activeIdxs.meshy, 'Enter Meshy API Key (msy_...)');
+          renderProviderPool('hf-keys-container', 'trellis_hf', pools.trellis_hf, activeIdxs.trellis_hf, 'Optional Hugging Face User Access Token (hf_...)');
+        }
       } catch (err) {
         console.warn('Could not fetch provider status:', err);
       }
@@ -1228,13 +1386,16 @@
       }
     }, 1000);
 
-    // Poll server every 30 seconds
-    setInterval(fetchProviderStatus, 30000);
-    fetchProviderStatus();
+    // Initial fetch & poll server status every 30 seconds
+    setInterval(() => fetchProviderStatus(false), 30000);
+    fetchProviderStatus(true);
 
     // Modal controls
     function openModal() {
-      if (keysModal) keysModal.classList.remove('hidden');
+      if (keysModal) {
+        keysModal.classList.remove('hidden');
+        fetchProviderStatus(true);
+      }
     }
     function closeModal() {
       if (keysModal) keysModal.classList.add('hidden');
@@ -1244,19 +1405,20 @@
     if (closeKeysBtn) closeKeysBtn.addEventListener('click', closeModal);
     if (cancelKeysBtn) cancelKeysBtn.addEventListener('click', closeModal);
 
-    // Clicking top provider pills also opens the modal!
+    // Clicking top provider pills opens the modal!
     ['provider-pill-tripo', 'provider-pill-meshy', 'provider-pill-hf', 'provider-pill-modly', 'provider-pill-local'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('click', openModal);
     });
 
-    // Save keys
+    // Save keys & sync multi-key pools
     if (saveKeysBtn) {
       saveKeysBtn.addEventListener('click', async () => {
-        const payload = {};
-        if (inputTripo && inputTripo.value.trim()) payload.tripo3d_key = inputTripo.value.trim();
-        if (inputMeshy && inputMeshy.value.trim()) payload.meshy_key = inputMeshy.value.trim();
-        if (inputHf && inputHf.value.trim()) payload.hf_token = inputHf.value.trim();
+        const payload = {
+          tripo3d_keys: getKeysFromContainer('tripo-keys-container'),
+          meshy_keys: getKeysFromContainer('meshy-keys-container'),
+          hf_tokens: getKeysFromContainer('hf-keys-container'),
+        };
 
         document.getElementById('save-keys-icon').textContent = '⏳';
         document.getElementById('save-keys-text').textContent = 'Saving & Verifying...';
@@ -1270,8 +1432,8 @@
           const data = await res.json();
           document.getElementById('save-keys-icon').textContent = '✓';
           document.getElementById('save-keys-text').textContent = 'Saved!';
-          log('[Omni-3D] API Keys & Provider quotas updated successfully.');
-          await fetchProviderStatus();
+          log(`[Omni-3D] Multi-key pools updated successfully (${payload.tripo3d_keys.length} Tripo, ${payload.meshy_keys.length} Meshy, ${payload.hf_tokens.length} HF).`);
+          await fetchProviderStatus(true);
           setTimeout(() => {
             closeModal();
             document.getElementById('save-keys-icon').textContent = '💾';

@@ -34,33 +34,116 @@ def get_blender_exe() -> Path:
     return Path(p) if p else DEFAULT_BLENDER
 
 
-def load_keys() -> dict[str, str]:
-    """Load API keys from keys.json or fallback to environment variables."""
-    keys = {
-        "tripo3d_key": os.environ.get("TRIPO3D_API_KEY", ""),
-        "meshy_key": os.environ.get("MESHY_API_KEY", ""),
-        "hf_token": os.environ.get("HF_TOKEN", ""),
+def load_keys() -> dict:
+    """Load API key pools and active rotation indices from keys.json."""
+    state = {
+        "tripo3d_keys": [],
+        "meshy_keys": [],
+        "hf_tokens": [],
+        "active_indices": {
+            "tripo3d": 0,
+            "meshy": 0,
+            "trellis_hf": 0,
+        },
+        "tripo3d_key": "",
+        "meshy_key": "",
+        "hf_token": "",
     }
+
     if KEYS_FILE.is_file():
         try:
             data = json.loads(KEYS_FILE.read_text(encoding="utf-8"))
             if isinstance(data, dict):
-                for k in keys:
-                    if data.get(k):
-                        keys[k] = data[k].strip()
+                # 1. Tripo keys
+                if "tripo3d_keys" in data and isinstance(data["tripo3d_keys"], list):
+                    state["tripo3d_keys"] = [str(k).strip() for k in data["tripo3d_keys"] if str(k).strip()]
+                elif "tripo3d_key" in data and data["tripo3d_key"]:
+                    state["tripo3d_keys"] = [str(data["tripo3d_key"]).strip()]
+
+                # 2. Meshy keys
+                if "meshy_keys" in data and isinstance(data["meshy_keys"], list):
+                    state["meshy_keys"] = [str(k).strip() for k in data["meshy_keys"] if str(k).strip()]
+                elif "meshy_key" in data and data["meshy_key"]:
+                    state["meshy_keys"] = [str(data["meshy_key"]).strip()]
+
+                # 3. HF tokens
+                if "hf_tokens" in data and isinstance(data["hf_tokens"], list):
+                    state["hf_tokens"] = [str(k).strip() for k in data["hf_tokens"] if str(k).strip()]
+                elif "hf_token" in data and data["hf_token"]:
+                    state["hf_tokens"] = [str(data["hf_token"]).strip()]
+
+                # 4. Active rotation indices
+                if "active_indices" in data and isinstance(data["active_indices"], dict):
+                    state["active_indices"].update(data["active_indices"])
         except Exception:
             pass
-    return keys
+
+    # Environment variables fallback if list is empty
+    if not state["tripo3d_keys"] and os.environ.get("TRIPO3D_API_KEY"):
+        state["tripo3d_keys"] = [os.environ["TRIPO3D_API_KEY"].strip()]
+    if not state["meshy_keys"] and os.environ.get("MESHY_API_KEY"):
+        state["meshy_keys"] = [os.environ["MESHY_API_KEY"].strip()]
+    if not state["hf_tokens"] and os.environ.get("HF_TOKEN"):
+        state["hf_tokens"] = [os.environ["HF_TOKEN"].strip()]
+
+    # Sync single-key convenience properties pointing to active key
+    t_idx = state["active_indices"].get("tripo3d", 0)
+    if state["tripo3d_keys"]:
+        state["tripo3d_key"] = state["tripo3d_keys"][t_idx % len(state["tripo3d_keys"])]
+
+    m_idx = state["active_indices"].get("meshy", 0)
+    if state["meshy_keys"]:
+        state["meshy_key"] = state["meshy_keys"][m_idx % len(state["meshy_keys"])]
+
+    h_idx = state["active_indices"].get("trellis_hf", 0)
+    if state["hf_tokens"]:
+        state["hf_token"] = state["hf_tokens"][h_idx % len(state["hf_tokens"])]
+
+    return state
 
 
-def save_keys(keys_data: dict[str, str]) -> dict[str, str]:
-    """Persist API keys to keys.json."""
+def save_keys(keys_data: dict) -> dict:
+    """Persist API key pools to keys.json."""
     current = load_keys()
-    for k in ("tripo3d_key", "meshy_key", "hf_token"):
-        if k in keys_data:
-            current[k] = str(keys_data[k]).strip()
-    KEYS_FILE.write_text(json.dumps(current, indent=2), encoding="utf-8")
-    return current
+
+    for field in ("tripo3d_keys", "meshy_keys", "hf_tokens"):
+        if field in keys_data:
+            val = keys_data[field]
+            if isinstance(val, list):
+                current[field] = [str(k).strip() for k in val if str(k).strip()]
+            elif isinstance(val, str):
+                current[field] = [val.strip()] if val.strip() else []
+
+    # Support single-key inputs
+    if "tripo3d_key" in keys_data and keys_data["tripo3d_key"]:
+        k = str(keys_data["tripo3d_key"]).strip()
+        if k and k not in current["tripo3d_keys"]:
+            current["tripo3d_keys"].append(k)
+
+    if "meshy_key" in keys_data and keys_data["meshy_key"]:
+        k = str(keys_data["meshy_key"]).strip()
+        if k and k not in current["meshy_keys"]:
+            current["meshy_keys"].append(k)
+
+    if "hf_token" in keys_data and keys_data["hf_token"]:
+        k = str(keys_data["hf_token"]).strip()
+        if k and k not in current["hf_tokens"]:
+            current["hf_tokens"].append(k)
+
+    if "active_indices" in keys_data and isinstance(keys_data["active_indices"], dict):
+        current["active_indices"].update(keys_data["active_indices"])
+
+    save_obj = {
+        "tripo3d_keys": current["tripo3d_keys"],
+        "meshy_keys": current["meshy_keys"],
+        "hf_tokens": current["hf_tokens"],
+        "active_indices": current["active_indices"],
+        "tripo3d_key": current["tripo3d_keys"][0] if current["tripo3d_keys"] else "",
+        "meshy_key": current["meshy_keys"][0] if current["meshy_keys"] else "",
+        "hf_token": current["hf_tokens"][0] if current["hf_tokens"] else "",
+    }
+    KEYS_FILE.write_text(json.dumps(save_obj, indent=2), encoding="utf-8")
+    return load_keys()
 
 
 def get_time_until_utc_midnight() -> tuple[int, str]:
@@ -129,44 +212,78 @@ def check_modly_status() -> dict:
 
 
 def get_providers_status() -> dict:
-    """Return live status, red/green light indicators, and reset timers for all providers."""
+    """Return live status, red/green light indicators, reset timers, and full key pools for all providers."""
     keys = load_keys()
-    tripo_key = keys.get("tripo3d_key", "")
-    meshy_key = keys.get("meshy_key", "")
-    hf_token = keys.get("hf_token", "")
+    tripo_keys = keys.get("tripo3d_keys", [])
+    meshy_keys = keys.get("meshy_keys", [])
+    hf_tokens = keys.get("hf_tokens", [])
 
     sec_daily, str_daily = get_time_until_utc_midnight()
     sec_monthly, str_monthly = get_time_until_month_reset()
     cuda_info = check_cuda_status()
     modly_info = check_modly_status()
 
-    # 1. Tripo3D Status (with live credit balance check!)
-    tripo_balance = 0
-    tripo_has_credits = False
-    if tripo_key:
-        bal_res = check_tripo_balance(tripo_key)
-        tripo_balance = bal_res.get("balance", 0)
-        tripo_has_credits = tripo_balance > 0
+    # 1. Tripo3D Status & Key Pool
+    tripo_key_details = []
+    total_tripo_balance = 0
+    active_tripo_idx = keys.get("active_indices", {}).get("tripo3d", 0)
+    if tripo_keys:
+        active_tripo_idx = active_tripo_idx % len(tripo_keys)
 
-    if not tripo_key:
+    first_funded_idx = None
+    for i, k in enumerate(tripo_keys):
+        bal_res = check_tripo_balance(k)
+        bal = bal_res.get("balance", 0)
+        total_tripo_balance += bal
+        if bal > 0 and first_funded_idx is None:
+            first_funded_idx = i
+        masked = (k[:6] + "..." + k[-4:]) if len(k) > 10 else k
+        tripo_key_details.append({
+            "index": i,
+            "key": k,
+            "masked": masked,
+            "balance": bal,
+            "error": bal_res.get("error"),
+            "is_active": (i == active_tripo_idx),
+        })
+
+    # Auto-advance active key if current active has 0 credits but another key has credits
+    if tripo_keys and tripo_key_details:
+        current_active_bal = tripo_key_details[active_tripo_idx]["balance"]
+        if current_active_bal <= 0 and first_funded_idx is not None and first_funded_idx != active_tripo_idx:
+            active_tripo_idx = first_funded_idx
+            keys["active_indices"]["tripo3d"] = active_tripo_idx
+            for item in tripo_key_details:
+                item["is_active"] = (item["index"] == active_tripo_idx)
+            save_keys(keys)
+
+    active_tripo_bal = tripo_key_details[active_tripo_idx]["balance"] if tripo_key_details else 0
+
+    if not tripo_keys:
         tripo_light = "red"
         tripo_timer = "Needs Key"
         tripo_desc = "300–600 welcome credits + daily free refill at 00:00 UTC."
-    elif not tripo_has_credits:
+    elif total_tripo_balance <= 0:
         tripo_light = "red"
-        tripo_timer = "0 Credits (Claim on Tripo)"
-        tripo_desc = "Tripo API key connected, but account has 0 credits. Claim your free developer credits at platform.tripo3d.ai."
+        tripo_timer = f"0 Cr ({len(tripo_keys)} Keys)" if len(tripo_keys) > 1 else "0 Credits (Claim on Tripo)"
+        tripo_desc = f"{len(tripo_keys)} key(s) connected, but all have 0 credits. Claim free developer credits at platform.tripo3d.ai or click '+ Add Key'."
     else:
         tripo_light = "green"
-        tripo_timer = f"{tripo_balance} Cr Active"
-        tripo_desc = f"{tripo_balance} credits available. Refills at 00:00 UTC ({str_daily})."
+        if len(tripo_keys) > 1:
+            tripo_timer = f"{active_tripo_bal} Cr (Key #{active_tripo_idx + 1}/{len(tripo_keys)})"
+        else:
+            tripo_timer = f"{active_tripo_bal} Cr Active"
+        tripo_desc = f"Active Key #{active_tripo_idx + 1} has {active_tripo_bal} credits ({total_tripo_balance} Cr across {len(tripo_keys)} keys). Refills at 00:00 UTC ({str_daily})."
 
     tripo_status = {
         "id": "tripo3d",
         "name": "Tripo3D",
-        "has_key": bool(tripo_key),
-        "balance": tripo_balance,
-        "status": "ready" if tripo_has_credits else "needs_credits",
+        "has_key": len(tripo_keys) > 0,
+        "key_count": len(tripo_keys),
+        "active_index": active_tripo_idx,
+        "balance": active_tripo_bal,
+        "total_balance": total_tripo_balance,
+        "status": "ready" if total_tripo_balance > 0 else ("needs_credits" if tripo_keys else "needs_key"),
         "light": tripo_light,
         "timer_text": tripo_timer,
         "reset_seconds": sec_daily,
@@ -174,27 +291,58 @@ def get_providers_status() -> dict:
         "signup_url": "https://platform.tripo3d.ai",
     }
 
-    # 2. Meshy Status
+    # 2. Meshy Status & Key Pool
+    active_meshy_idx = keys.get("active_indices", {}).get("meshy", 0)
+    if meshy_keys:
+        active_meshy_idx = active_meshy_idx % len(meshy_keys)
+    meshy_key_details = [
+        {
+            "index": i,
+            "key": k,
+            "masked": (k[:6] + "..." + k[-4:]) if len(k) > 10 else k,
+            "is_active": (i == active_meshy_idx),
+        }
+        for i, k in enumerate(meshy_keys)
+    ]
+
     meshy_status = {
         "id": "meshy",
         "name": "Meshy.ai",
-        "has_key": bool(meshy_key),
-        "status": "ready" if meshy_key else "needs_key",
-        "light": "green" if meshy_key else "red",
-        "timer_text": f"Active ({str_monthly} reset)" if meshy_key else "Paid Plan Req.",
-        "reset_seconds": sec_monthly if meshy_key else 0,
+        "has_key": len(meshy_keys) > 0,
+        "key_count": len(meshy_keys),
+        "active_index": active_meshy_idx,
+        "status": "ready" if meshy_keys else "needs_key",
+        "light": "green" if meshy_keys else "red",
+        "timer_text": f"Active ({len(meshy_keys)} Keys)" if meshy_keys else "Paid Plan Req.",
+        "reset_seconds": sec_monthly if meshy_keys else 0,
         "desc": "Meshy restricts API keys to paid Pro plans ($20+/mo). Free credits on meshy.ai are web-app only.",
         "signup_url": "https://www.meshy.ai/pricing",
     }
 
-    # 3. Hugging Face (TRELLIS) Status
+    # 3. Hugging Face (TRELLIS) Status & Token Pool
+    active_hf_idx = keys.get("active_indices", {}).get("trellis_hf", 0)
+    if hf_tokens:
+        active_hf_idx = active_hf_idx % len(hf_tokens)
+    hf_token_details = [
+        {
+            "index": i,
+            "key": k,
+            "masked": (k[:6] + "..." + k[-4:]) if len(k) > 10 else k,
+            "is_active": (i == active_hf_idx),
+        }
+        for i, k in enumerate(hf_tokens)
+    ]
+
+    hf_timer_text = f"ZeroGPU ({len(hf_tokens)} Token{'s' if len(hf_tokens) != 1 else ''})" if hf_tokens else "Community Pool"
     hf_status = {
         "id": "trellis_hf",
         "name": "Hugging Face (TRELLIS)",
-        "has_key": bool(hf_token),
+        "has_key": len(hf_tokens) > 0,
+        "key_count": len(hf_tokens),
+        "active_index": active_hf_idx,
         "status": "ready",
-        "light": "green",  # HuggingFace ZeroGPU is free even without key, but key gives higher priority
-        "timer_text": "ZeroGPU SOTA Ready" if hf_token else "Community Pool",
+        "light": "green",  # ZeroGPU is free even without tokens
+        "timer_text": hf_timer_text,
         "reset_seconds": 0,
         "desc": "Microsoft TRELLIS on shared ZeroGPU A100 clusters (Free daily quotas)",
         "signup_url": "https://huggingface.co/settings/tokens",
@@ -238,10 +386,20 @@ def get_providers_status() -> dict:
             "modly_local": modly_status,
             "triposr_local": local_status,
         },
+        "pools": {
+            "tripo3d": tripo_key_details,
+            "meshy": meshy_key_details,
+            "trellis_hf": hf_token_details,
+        },
+        "active_indices": {
+            "tripo3d": active_tripo_idx,
+            "meshy": active_meshy_idx,
+            "trellis_hf": active_hf_idx,
+        },
         "keys_configured": {
-            "tripo3d": bool(tripo_key),
-            "meshy": bool(meshy_key),
-            "hf_token": bool(hf_token),
+            "tripo3d": len(tripo_keys) > 0,
+            "meshy": len(meshy_keys) > 0,
+            "hf_token": len(hf_tokens) > 0,
         },
     }
 
@@ -298,43 +456,30 @@ print("CONVERT_EXPORT_OK")
 
 
 # ==============================================================================
-# 1. TRIPO3D CLOUD GENERATOR
+# 1. TRIPO3D CLOUD GENERATOR (Multi-Key Rotation & Auto-Loop)
 # ==============================================================================
-def generate_tripo3d_asset(
+def _execute_tripo3d_single(
+    api_key: str,
     image_path: Path,
     exports_dir: Path,
     formats: list[str],
-    progress_cb: Callable[[dict], None] | None = None,
-) -> dict:
-    """Generate 3D model using Tripo3D REST API."""
-    keys = load_keys()
-    api_key = keys.get("tripo3d_key", "")
-    if not api_key:
-        raise ValueError(
-            "Tripo3D API Key is not configured! Please click the '🔑 Keys' button or Tripo3D pill in the top bar to enter your free key (get 300–600 free credits at platform.tripo3d.ai)."
-        )
-
-    # Check live balance before submitting to provide immediate guidance
+    report: Callable[[str], None],
+) -> tuple[bool, str, dict]:
+    """Execute Tripo3D image-to-3d generation for a single API key.
+    
+    Returns (success: bool, status_reason: str, result_dict: dict).
+    """
     bal_res = check_tripo_balance(api_key)
-    if bal_res.get("balance", 0) <= 0:
-        raise ValueError(
-            "Your Tripo3D API key is connected, but your account currently has 0 credits. "
-            "Please go to https://platform.tripo3d.ai and claim your free developer credits, "
-            "or switch to Microsoft TRELLIS in the dropdown for free unlimited ZeroGPU generations."
-        )
+    bal = bal_res.get("balance", 0)
+    if bal <= 0:
+        return False, f"DEPLETED: 0 credits available ({bal_res.get('error') or 'no credits remaining'})", {}
 
-    def report(msg: str):
-        if progress_cb:
-            progress_cb({"stage": 2, "stage_name": "Tripo3D Cloud", "message": msg})
-
-    report("Encoding reference image for Tripo3D Cloud GPU cluster...")
     img_bytes = image_path.read_bytes()
     b64_data = base64.b64encode(img_bytes).decode("utf-8")
     ext = image_path.suffix.lstrip(".").lower() or "png"
     if ext == "jpg":
         ext = "jpeg"
 
-    # Step 1: Create image-to-model task
     create_url = "https://api.tripo3d.ai/v2/openapi/task"
     payload = {
         "type": "image_to_model",
@@ -360,15 +505,22 @@ def generate_tripo3d_asset(
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as err:
         err_body = err.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Tripo3D API error ({err.code}): {err_body}")
+        if err.code in (401, 403, 429) or "credit" in err_body.lower() or "quota" in err_body.lower():
+            return False, f"DEPLETED (HTTP {err.code}): {err_body}", {}
+        return False, f"HTTP Error ({err.code}): {err_body}", {}
+    except Exception as exc:
+        return False, f"Network error: {exc}", {}
 
     if data.get("code") != 0 or "data" not in data or "task_id" not in data["data"]:
-        raise RuntimeError(f"Tripo3D dispatch error: {data.get('message', 'Unknown response')}")
+        msg = data.get("message", "Unknown dispatch failure")
+        code = data.get("code")
+        if code in (2010, 2011) or "credit" in msg.lower() or "quota" in msg.lower():
+            return False, f"DEPLETED (Code {code}): {msg}", {}
+        return False, f"Dispatch rejected: {msg}", {}
 
     task_id = data["data"]["task_id"]
     report(f"Job queued on Tripo3D cluster (Task ID: {task_id[:12]}...). Synthesizing neural geometry...")
 
-    # Step 2: Poll task status
     poll_url = f"https://api.tripo3d.ai/v2/openapi/task/{task_id}"
     poll_headers = {
         "Authorization": f"Bearer {api_key}",
@@ -379,9 +531,13 @@ def generate_tripo3d_asset(
     glb_url = None
     while time.time() - t0 < 300:  # 5 minutes timeout
         time.sleep(3.0)
-        poll_req = urllib.request.Request(poll_url, headers=poll_headers, method="GET")
-        with urllib.request.urlopen(poll_req, timeout=20) as resp:
-            task_resp = json.loads(resp.read().decode("utf-8"))
+        try:
+            poll_req = urllib.request.Request(poll_url, headers=poll_headers, method="GET")
+            with urllib.request.urlopen(poll_req, timeout=20) as resp:
+                task_resp = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            report(f"Status poll retry ({exc})...")
+            continue
 
         task_data = task_resp.get("data", {})
         status = task_data.get("status", "").lower()
@@ -394,48 +550,100 @@ def generate_tripo3d_asset(
             glb_url = output.get("pbr_model") or output.get("model")
             break
         elif status in ("failed", "cancelled"):
-            raise RuntimeError(f"Tripo3D task {status}: {task_data.get('error', 'Generation aborted')}")
+            err_msg = task_data.get("error", "Generation aborted")
+            if "credit" in err_msg.lower() or "quota" in err_msg.lower():
+                return False, f"DEPLETED: {err_msg}", {}
+            return False, f"Task {status}: {err_msg}", {}
 
     if not glb_url:
-        raise TimeoutError("Tripo3D generation timed out waiting for neural mesh.")
+        return False, "TIMEOUT: Tripo3D generation timed out waiting for neural mesh.", {}
 
-    # Step 3: Download finished GLB
+    # Download finished GLB
     report("Downloading high-detail neural GLB model from Tripo3D...")
     glb_dest = exports_dir / "model.glb"
     dl_req = urllib.request.Request(glb_url, headers={"User-Agent": "Omni-3D-Studio/2.0"})
     with urllib.request.urlopen(dl_req, timeout=60) as resp:
         glb_dest.write_bytes(resp.read())
 
-    # Step 4: Export to OBJ, STL, FBX via Blender
+    # Export formats via Blender
     if any(f in formats for f in ("obj", "stl", "fbx")):
         report("Converting neural GLB to OBJ, STL, and FBX deliverables via Blender 5.2 LTS...")
         convert_glb_to_formats(glb_dest, exports_dir, formats)
 
-    return {"success": True, "deliverables": {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}}
+    deliverables = {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}
+    return True, "SUCCESS", {"success": True, "deliverables": deliverables}
 
 
-# ==============================================================================
-# 2. MESHY CLOUD GENERATOR
-# ==============================================================================
-def generate_meshy_asset(
+def generate_tripo3d_asset(
     image_path: Path,
     exports_dir: Path,
     formats: list[str],
     progress_cb: Callable[[dict], None] | None = None,
 ) -> dict:
-    """Generate 3D model using Meshy.ai REST API."""
-    keys = load_keys()
-    api_key = keys.get("meshy_key", "")
-    if not api_key:
+    """Generate 3D model using Tripo3D REST API with multi-key rotation and loop-back."""
+    keys_data = load_keys()
+    pool = keys_data.get("tripo3d_keys", [])
+    if not pool:
         raise ValueError(
-            "Meshy.ai API Key is not configured. Note: Meshy does not provide API keys on free accounts (their 100-200 credits are web-only and API keys require a paid Pro subscription). For free cloud generation, use Tripo3D (platform.tripo3d.ai) or Hugging Face TRELLIS."
+            "Tripo3D API Key is not configured! Please click '+ Add Key' in the Keys modal to add your free Tripo API key (get 300–600 free credits at platform.tripo3d.ai)."
         )
 
     def report(msg: str):
         if progress_cb:
-            progress_cb({"stage": 2, "stage_name": "Meshy Cloud", "message": msg})
+            progress_cb({"stage": 2, "stage_name": "Tripo3D Cloud", "message": msg})
 
-    report("Encoding reference image as data URI for Meshy.ai...")
+    total_keys = len(pool)
+    start_idx = keys_data.get("active_indices", {}).get("tripo3d", 0) % total_keys
+
+    errors_encountered = []
+    for attempt in range(total_keys):
+        curr_idx = (start_idx + attempt) % total_keys
+        curr_key = pool[curr_idx]
+        masked = (curr_key[:6] + "..." + curr_key[-4:]) if len(curr_key) > 10 else "***"
+
+        report(f"[Key Rotation] Trying Tripo3D Key #{curr_idx + 1}/{total_keys} ({masked})...")
+        ok, reason, result = _execute_tripo3d_single(curr_key, image_path, exports_dir, formats, report)
+
+        if ok:
+            keys_data["active_indices"]["tripo3d"] = curr_idx
+            save_keys(keys_data)
+            report(f"Tripo3D model generated successfully using Key #{curr_idx + 1}!")
+            return result
+
+        errors_encountered.append(f"Key #{curr_idx + 1}: {reason}")
+        next_idx = (curr_idx + 1) % total_keys
+        keys_data["active_indices"]["tripo3d"] = next_idx
+        save_keys(keys_data)
+
+        if attempt < total_keys - 1:
+            report(f"[Key Rotation] Key #{curr_idx + 1} depleted or unavailable ({reason}). Auto-switching to Key #{next_idx + 1}/{total_keys}...")
+        else:
+            report(f"[Key Rotation] Key #{curr_idx + 1} depleted ({reason}). All {total_keys} keys checked, looping back to Key #{next_idx + 1}...")
+
+    # All keys exhausted, loop back to Key #1 (index 0)
+    keys_data["active_indices"]["tripo3d"] = 0
+    save_keys(keys_data)
+
+    err_summary = " | ".join(errors_encountered)
+    raise RuntimeError(
+        f"All {total_keys} Tripo3D API key(s) in your pool are depleted or rate-limited ({err_summary}). "
+        f"Rotation has looped back to Key #1. "
+        f"Please click '🔑 Keys' in the top bar and click '+ Add Key' to add another free API key, "
+        f"or switch to Microsoft TRELLIS for free unlimited ZeroGPU generations."
+    )
+
+
+# ==============================================================================
+# 2. MESHY CLOUD GENERATOR (Multi-Key Rotation & Auto-Loop)
+# ==============================================================================
+def _execute_meshy_single(
+    api_key: str,
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    report: Callable[[str], None],
+) -> tuple[bool, str, dict]:
+    """Execute Meshy.ai image-to-3d generation for a single API key."""
     img_bytes = image_path.read_bytes()
     b64_data = base64.b64encode(img_bytes).decode("utf-8")
     ext = image_path.suffix.lstrip(".").lower() or "png"
@@ -443,7 +651,6 @@ def generate_meshy_asset(
         ext = "jpeg"
     data_uri = f"data:image/{ext};base64,{b64_data}"
 
-    # Step 1: Create image-to-3d task
     create_url = "https://api.meshy.ai/openapi/v2/image-to-3d"
     payload = {
         "image_url": data_uri,
@@ -467,15 +674,18 @@ def generate_meshy_asset(
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as err:
         err_body = err.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Meshy.ai API error ({err.code}): {err_body}")
+        if err.code in (401, 403, 429) or "credit" in err_body.lower() or "quota" in err_body.lower() or "subscription" in err_body.lower():
+            return False, f"DEPLETED (HTTP {err.code}): {err_body}", {}
+        return False, f"HTTP Error ({err.code}): {err_body}", {}
+    except Exception as exc:
+        return False, f"Network error: {exc}", {}
 
     task_id = data.get("result")
     if not task_id:
-        raise RuntimeError(f"Meshy.ai dispatch error: {data.get('message', 'No task ID returned')}")
+        return False, f"Dispatch error: {data.get('message', 'No task ID returned')}", {}
 
     report(f"Job queued on Meshy.ai (Task ID: {task_id[:12]}...). Neural reconstruction running...")
 
-    # Step 2: Poll task status
     poll_url = f"https://api.meshy.ai/openapi/v2/image-to-3d/{task_id}"
     poll_headers = {
         "Authorization": f"Bearer {api_key}",
@@ -486,9 +696,13 @@ def generate_meshy_asset(
     glb_url = None
     while time.time() - t0 < 360:  # 6 minutes timeout
         time.sleep(4.0)
-        poll_req = urllib.request.Request(poll_url, headers=poll_headers, method="GET")
-        with urllib.request.urlopen(poll_req, timeout=20) as resp:
-            task_resp = json.loads(resp.read().decode("utf-8"))
+        try:
+            poll_req = urllib.request.Request(poll_url, headers=poll_headers, method="GET")
+            with urllib.request.urlopen(poll_req, timeout=20) as resp:
+                task_resp = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            report(f"Status poll retry ({exc})...")
+            continue
 
         status = task_resp.get("status", "").upper()
         progress = task_resp.get("progress", 0)
@@ -500,95 +714,201 @@ def generate_meshy_asset(
             glb_url = model_urls.get("glb")
             break
         elif status in ("FAILED", "EXPIRED"):
-            raise RuntimeError(f"Meshy task {status}: {task_resp.get('task_error', {}).get('message', 'Failed')}")
+            err_msg = task_resp.get("task_error", {}).get("message", "Failed")
+            if "credit" in err_msg.lower() or "quota" in err_msg.lower():
+                return False, f"DEPLETED: {err_msg}", {}
+            return False, f"Meshy task {status}: {err_msg}", {}
 
     if not glb_url:
-        raise TimeoutError("Meshy generation timed out waiting for neural mesh.")
+        return False, "TIMEOUT: Meshy generation timed out waiting for neural mesh.", {}
 
-    # Step 3: Download finished GLB
     report("Downloading finished PBR neural mesh from Meshy.ai...")
     glb_dest = exports_dir / "model.glb"
     dl_req = urllib.request.Request(glb_url, headers={"User-Agent": "Omni-3D-Studio/2.0"})
     with urllib.request.urlopen(dl_req, timeout=60) as resp:
         glb_dest.write_bytes(resp.read())
 
-    # Step 4: Export to OBJ, STL, FBX via Blender
     if any(f in formats for f in ("obj", "stl", "fbx")):
         report("Converting Meshy GLB to OBJ, STL, and FBX deliverables via Blender 5.2 LTS...")
         convert_glb_to_formats(glb_dest, exports_dir, formats)
 
-    return {"success": True, "deliverables": {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}}
+    deliverables = {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}
+    return True, "SUCCESS", {"success": True, "deliverables": deliverables}
+
+
+def generate_meshy_asset(
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    progress_cb: Callable[[dict], None] | None = None,
+) -> dict:
+    """Generate 3D model using Meshy.ai REST API with multi-key rotation and loop-back."""
+    keys_data = load_keys()
+    pool = keys_data.get("meshy_keys", [])
+    if not pool:
+        raise ValueError(
+            "Meshy.ai API Key is not configured. Note: Meshy does not provide API keys on free accounts (their credits are web-only; API keys require a paid Pro subscription). To add a key, click '+ Add Key' in the Keys modal. Or switch to Tripo3D or TRELLIS for free generations."
+        )
+
+    def report(msg: str):
+        if progress_cb:
+            progress_cb({"stage": 2, "stage_name": "Meshy Cloud", "message": msg})
+
+    total_keys = len(pool)
+    start_idx = keys_data.get("active_indices", {}).get("meshy", 0) % total_keys
+
+    errors_encountered = []
+    for attempt in range(total_keys):
+        curr_idx = (start_idx + attempt) % total_keys
+        curr_key = pool[curr_idx]
+        masked = (curr_key[:6] + "..." + curr_key[-4:]) if len(curr_key) > 10 else "***"
+
+        report(f"[Key Rotation] Trying Meshy Key #{curr_idx + 1}/{total_keys} ({masked})...")
+        ok, reason, result = _execute_meshy_single(curr_key, image_path, exports_dir, formats, report)
+
+        if ok:
+            keys_data["active_indices"]["meshy"] = curr_idx
+            save_keys(keys_data)
+            report(f"Meshy model generated successfully using Key #{curr_idx + 1}!")
+            return result
+
+        errors_encountered.append(f"Key #{curr_idx + 1}: {reason}")
+        next_idx = (curr_idx + 1) % total_keys
+        keys_data["active_indices"]["meshy"] = next_idx
+        save_keys(keys_data)
+
+        if attempt < total_keys - 1:
+            report(f"[Key Rotation] Meshy Key #{curr_idx + 1} depleted or unavailable ({reason}). Auto-switching to Key #{next_idx + 1}/{total_keys}...")
+        else:
+            report(f"[Key Rotation] Meshy Key #{curr_idx + 1} depleted ({reason}). All {total_keys} keys checked, looping back to Key #{next_idx + 1}...")
+
+    # All keys exhausted, loop back to Key #1 (index 0)
+    keys_data["active_indices"]["meshy"] = 0
+    save_keys(keys_data)
+
+    err_summary = " | ".join(errors_encountered)
+    raise RuntimeError(
+        f"All {total_keys} Meshy API key(s) in your pool failed or depleted ({err_summary}). Rotation looped back to Key #1."
+    )
 
 
 # ==============================================================================
-# 3. HUGGING FACE / TRELLIS ZERO-GPU GENERATOR
+# 3. HUGGING FACE / TRELLIS ZERO-GPU GENERATOR (Multi-Token Rotation & Loop)
 # ==============================================================================
+def _execute_trellis_single(
+    hf_token: str,
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    report: Callable[[str], None],
+) -> dict:
+    """Execute Microsoft TRELLIS via Gradio Client using a specific HF token (or empty for public)."""
+    if hf_token:
+        os.environ["HF_TOKEN"] = hf_token
+    elif "HF_TOKEN" in os.environ:
+        del os.environ["HF_TOKEN"]
+
+    from gradio_client import Client, handle_file
+    client = Client("trellis-community/TRELLIS", hf_token=hf_token or None, httpx_kwargs={"timeout": 300.0})
+
+    report("Initializing ZeroGPU session...")
+    client.predict(api_name="/start_session")
+
+    report("Preprocessing image foreground contours & mask on ZeroGPU...")
+    prep = client.predict(image=handle_file(str(image_path)), api_name="/preprocess_image")
+
+    report("Synthesizing 360° neural 3D mesh via TRELLIS (NeRF & O-Voxels)...")
+    res = client.predict(
+        image=handle_file(prep),
+        multiimages=[],
+        seed=0,
+        ss_guidance_strength=7.5,
+        ss_sampling_steps=12,
+        slat_guidance_strength=3.0,
+        slat_sampling_steps=12,
+        multiimage_algo="stochastic",
+        mesh_simplify=0.95,
+        texture_size=1024,
+        api_name="/generate_and_extract_glb",
+    )
+
+    glb_source = None
+    if isinstance(res, (list, tuple)) and len(res) >= 3:
+        glb_source = res[2] or res[1]
+    elif isinstance(res, (list, tuple)) and len(res) > 0:
+        glb_source = res[-1]
+
+    if not glb_source or not Path(glb_source).is_file():
+        raise RuntimeError(f"TRELLIS returned unexpected output structure: {res}")
+
+    glb_dest = exports_dir / "model.glb"
+    import shutil
+    shutil.copy2(glb_source, glb_dest)
+    report(f"Neural GLB model downloaded successfully ({round(glb_dest.stat().st_size / (1024*1024), 2)} MB).")
+
+    if any(f in formats for f in ("obj", "stl", "fbx")):
+        report("Converting TRELLIS GLB to OBJ, STL, and FBX deliverables via Blender 5.2 LTS...")
+        convert_glb_to_formats(glb_dest, exports_dir, formats)
+
+    deliverables = {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}
+    return {"success": True, "deliverables": deliverables}
+
+
 def generate_trellis_hf_asset(
     image_path: Path,
     exports_dir: Path,
     formats: list[str],
     progress_cb: Callable[[dict], None] | None = None,
 ) -> dict:
-    """Generate 3D model using Microsoft TRELLIS on Hugging Face Spaces via Gradio Client."""
-    keys = load_keys()
-    hf_token = keys.get("hf_token", "")
-    if hf_token:
-        os.environ["HF_TOKEN"] = hf_token
+    """Generate 3D model using Microsoft TRELLIS on Hugging Face Spaces with token pool rotation."""
+    keys_data = load_keys()
+    pool = keys_data.get("hf_tokens", [])
 
     def report(msg: str):
         if progress_cb:
             progress_cb({"stage": 2, "stage_name": "TRELLIS (HF)", "message": msg})
 
-    report("Connecting to Microsoft TRELLIS on Hugging Face ZeroGPU cluster...")
+    # If no tokens configured, directly use public community ZeroGPU pool
+    if not pool:
+        report("No user tokens configured. Connecting to Microsoft TRELLIS public ZeroGPU pool...")
+        return _execute_trellis_single("", image_path, exports_dir, formats, report)
 
+    total_keys = len(pool)
+    start_idx = keys_data.get("active_indices", {}).get("trellis_hf", 0) % total_keys
+
+    errors_encountered = []
+    for attempt in range(total_keys):
+        curr_idx = (start_idx + attempt) % total_keys
+        curr_token = pool[curr_idx]
+        masked = (curr_token[:6] + "..." + curr_token[-4:]) if len(curr_token) > 10 else "***"
+
+        report(f"[Token Rotation] Connecting to TRELLIS with HF Token #{curr_idx + 1}/{total_keys} ({masked})...")
+        try:
+            res = _execute_trellis_single(curr_token, image_path, exports_dir, formats, report)
+            keys_data["active_indices"]["trellis_hf"] = curr_idx
+            save_keys(keys_data)
+            report(f"TRELLIS model synthesized successfully using Token #{curr_idx + 1}!")
+            return res
+        except Exception as exc:
+            err_msg = str(exc)
+            errors_encountered.append(f"Token #{curr_idx + 1}: {err_msg}")
+            next_idx = (curr_idx + 1) % total_keys
+            keys_data["active_indices"]["trellis_hf"] = next_idx
+            save_keys(keys_data)
+
+            if attempt < total_keys - 1:
+                report(f"[Token Rotation] Token #{curr_idx + 1} rate-limited or error ({err_msg}). Auto-switching to Token #{next_idx + 1}/{total_keys}...")
+            else:
+                report(f"[Token Rotation] Token #{curr_idx + 1} error ({err_msg}). All tokens tested, looping back to Token #{next_idx + 1}...")
+
+    # If all tokens fail, try once without token on community pool
+    report("[Token Rotation] All configured HF tokens hit rate limits. Attempting public community ZeroGPU pool...")
     try:
-        from gradio_client import Client, handle_file
-        client = Client("trellis-community/TRELLIS", httpx_kwargs={"timeout": 300.0})
-
-        report("Initializing ZeroGPU session...")
-        client.predict(api_name="/start_session")
-
-        report("Preprocessing image foreground contours & mask on ZeroGPU...")
-        prep = client.predict(image=handle_file(str(image_path)), api_name="/preprocess_image")
-
-        report("Synthesizing 360° neural 3D mesh via TRELLIS (NeRF & O-Voxels)...")
-        res = client.predict(
-            image=handle_file(prep),
-            multiimages=[],
-            seed=0,
-            ss_guidance_strength=7.5,
-            ss_sampling_steps=12,
-            slat_guidance_strength=3.0,
-            slat_sampling_steps=12,
-            multiimage_algo="stochastic",
-            mesh_simplify=0.95,
-            texture_size=1024,
-            api_name="/generate_and_extract_glb",
-        )
-
-        glb_source = None
-        if isinstance(res, (list, tuple)) and len(res) >= 3:
-            glb_source = res[2] or res[1]
-        elif isinstance(res, (list, tuple)) and len(res) > 0:
-            glb_source = res[-1]
-
-        if not glb_source or not Path(glb_source).is_file():
-            raise RuntimeError(f"TRELLIS returned unexpected output structure: {res}")
-
-        glb_dest = exports_dir / "model.glb"
-        import shutil
-        shutil.copy2(glb_source, glb_dest)
-        report(f"Neural GLB model downloaded successfully ({round(glb_dest.stat().st_size / (1024*1024), 2)} MB).")
-
+        keys_data["active_indices"]["trellis_hf"] = 0
+        save_keys(keys_data)
+        return _execute_trellis_single("", image_path, exports_dir, formats, report)
     except Exception as exc:
-        raise RuntimeError(f"Hugging Face TRELLIS error: {exc}")
-
-    # Export formats
-    if any(f in formats for f in ("obj", "stl", "fbx")):
-        report("Converting TRELLIS GLB to OBJ, STL, and FBX deliverables via Blender 5.2 LTS...")
-        convert_glb_to_formats(glb_dest, exports_dir, formats)
-
-    return {"success": True, "deliverables": {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}}
+        raise RuntimeError(f"Hugging Face TRELLIS failed on all tokens and community pool: {exc}")
 
 
 # ==============================================================================
