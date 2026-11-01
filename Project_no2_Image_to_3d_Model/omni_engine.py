@@ -1124,7 +1124,7 @@ FINAL REQUIREMENTS (CRITICAL):
 
         # Stage 1 & 2: Route by Mesh Architecture Preset / Provider Engine
         actual_provider = quality_preset
-        if quality_preset in ("tripo3d", "meshy", "trellis_hf", "modly_local", "triposr_local"):
+        if quality_preset in ("trellis_hf", "hunyuan3d_hf", "modly_local", "triposr_local"):
             import providers
             report(1, "Perception", f"Dispatching image ({image_path.name}) to {quality_preset.upper()} engine...")
             script_file = job_dir / f"{quality_preset}_job.json"
@@ -1132,15 +1132,12 @@ FINAL REQUIREMENTS (CRITICAL):
 
             t_prov = time.time()
             try:
-                if quality_preset == "tripo3d":
-                    providers.generate_tripo3d_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
-                    actual_provider = "Tripo3D Cloud Neural Engine"
-                elif quality_preset == "meshy":
-                    providers.generate_meshy_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
-                    actual_provider = "Meshy.ai PBR Cloud Engine"
-                elif quality_preset == "trellis_hf":
+                if quality_preset == "trellis_hf":
                     providers.generate_trellis_hf_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
                     actual_provider = "Microsoft TRELLIS (Hugging Face ZeroGPU)"
+                elif quality_preset == "hunyuan3d_hf":
+                    providers.generate_hunyuan3d_hf_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
+                    actual_provider = "Tencent Hunyuan3D-2 (Hugging Face ZeroGPU)"
                 elif quality_preset == "modly_local":
                     providers.generate_modly_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
                     actual_provider = "Modly Local AI Engine (GTX)"
