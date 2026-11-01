@@ -62,7 +62,7 @@
       <div class="text-[10px] uppercase font-bold tracking-wider text-slate-500 font-mono pr-0.5">Engines:</div>
       
       <!-- Tripo3D -->
-      <div id="provider-pill-tripo" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700/60 text-xs cursor-pointer hover:border-cyan-500/50 transition-all group" title="Tripo3D: Click to configure API Key (Free daily credits)">
+      <div id="provider-pill-tripo" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700/60 text-xs cursor-pointer hover:border-cyan-500/50 transition-all group" title="Tripo3D: Pay-As-You-Go API Key (Free credits on tripo3d.ai are web-only)">
         <span class="w-2 h-2 rounded-full bg-rose-500 ring-2 ring-rose-500/30" id="tripo-dot"></span>
         <span class="font-bold text-slate-200 group-hover:text-cyan-300">Tripo3D</span>
         <span class="text-[10px] font-mono text-cyan-400" id="tripo-timer">--:--</span>
@@ -390,7 +390,7 @@
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-rose-500" id="modal-tripo-dot"></span>
-              <span class="font-bold text-sm text-cyan-300">Tripo3D Neural AI</span>
+              <span class="font-bold text-sm text-cyan-300">Tripo3D Neural AI (OpenAPI v3)</span>
             </div>
             <div class="flex items-center gap-2">
               <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30" id="modal-tripo-timer">--:--</span>
@@ -400,15 +400,15 @@
             </div>
           </div>
           <p class="text-[11px] text-slate-400 leading-relaxed">
-            Fastest cloud 360° neural mesh generator. Provides <strong>300–600 free welcome credits</strong> (~30–60 models) per account + daily refill.
+            ⚠️ <strong>Tripo API Policy:</strong> Tripo's 300–600 free onboarding credits are strictly locked to their web app browser UI (<code class="text-cyan-300">tripo3d.ai/app</code>). The Developer API operates on a separate pay-as-you-go wallet that starts at <strong>0 credits</strong> (refilled via credit packs on <a href="https://platform.tripo3d.ai" target="_blank" class="text-cyan-400 underline">platform.tripo3d.ai</a>). For <strong>100% free unlimited</strong> cloud 360° neural models, use <strong>Microsoft TRELLIS</strong> below!
           </p>
           <!-- Dynamic Keys Container for Tripo3D -->
           <div id="tripo-keys-container" class="space-y-1.5 pt-0.5"></div>
           <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/80">
             <a href="https://platform.tripo3d.ai" target="_blank" class="text-cyan-400 hover:underline flex items-center gap-1">
-              <span>↗</span> Claim free keys at platform.tripo3d.ai
+              <span>↗</span> Manage API wallet at platform.tripo3d.ai
             </a>
-            <span class="text-slate-500 font-mono">Auto-rotates & loops back</span>
+            <span class="text-slate-500 font-mono">Auto-rotates funded keys</span>
           </div>
         </div>
 

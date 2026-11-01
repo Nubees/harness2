@@ -181,9 +181,25 @@ def check_cuda_status() -> dict:
 
 
 def check_tripo_balance(key: str) -> dict:
-    """Query live credit balance from Tripo3D API."""
+    """Query live credit balance from Tripo3D API (v3 primary, v2 fallback)."""
     if not key:
         return {"balance": 0, "error": "No key"}
+
+    # 1. Try V3 OpenAPI (openapi.tripo3d.ai/v3/account/balance)
+    try:
+        req = urllib.request.Request(
+            "https://openapi.tripo3d.ai/v3/account/balance",
+            headers={"Authorization": f"Bearer {key}", "User-Agent": "Omni-3D-Studio/2.0"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data.get("code") == 0:
+                bal = data.get("data", {}).get("balance", 0)
+                return {"balance": bal, "error": None}
+    except Exception:
+        pass
+
+    # 2. Fallback to legacy V2 OpenAPI (api.tripo3d.ai/v2/openapi/user/balance)
     try:
         req = urllib.request.Request(
             "https://api.tripo3d.ai/v2/openapi/user/balance",
@@ -262,11 +278,11 @@ def get_providers_status() -> dict:
     if not tripo_keys:
         tripo_light = "red"
         tripo_timer = "Needs Key"
-        tripo_desc = "300–600 welcome credits + daily free refill at 00:00 UTC."
+        tripo_desc = "Tripo developer API uses a separate wallet (starts at 0 credits; free web credits do not transfer to API)."
     elif total_tripo_balance <= 0:
         tripo_light = "red"
-        tripo_timer = f"0 Cr ({len(tripo_keys)} Keys)" if len(tripo_keys) > 1 else "0 Credits (Claim on Tripo)"
-        tripo_desc = f"{len(tripo_keys)} key(s) connected, but all have 0 credits. Claim free developer credits at platform.tripo3d.ai or click '+ Add Key'."
+        tripo_timer = f"0 Cr ({len(tripo_keys)} Keys)" if len(tripo_keys) > 1 else "0 Cr (API Wallet 0)"
+        tripo_desc = f"{len(tripo_keys)} key(s) connected, but Tripo API wallet has 0 credits. Note: Tripo free trial credits are web-only (tripo3d.ai); the Developer API requires purchasing credits at platform.tripo3d.ai or using Microsoft TRELLIS for 100% free generation."
     else:
         tripo_light = "green"
         if len(tripo_keys) > 1:
@@ -465,20 +481,126 @@ def _execute_tripo3d_single(
     formats: list[str],
     report: Callable[[str], None],
 ) -> tuple[bool, str, dict]:
-    """Execute Tripo3D image-to-3d generation for a single API key.
+    """Execute Tripo3D image-to-3d generation for a single API key (OpenAPI V3 with V2 fallback).
     
     Returns (success: bool, status_reason: str, result_dict: dict).
     """
     bal_res = check_tripo_balance(api_key)
     bal = bal_res.get("balance", 0)
     if bal <= 0:
-        return False, f"DEPLETED: 0 credits available ({bal_res.get('error') or 'no credits remaining'})", {}
+        return False, f"UNFUNDED: 0 API credits ({bal_res.get('error') or 'Tripo API wallet balance is 0.0'})", {}
 
-    img_bytes = image_path.read_bytes()
-    b64_data = base64.b64encode(img_bytes).decode("utf-8")
     ext = image_path.suffix.lstrip(".").lower() or "png"
     if ext == "jpg":
         ext = "jpeg"
+    mime_type = f"image/{ext}"
+
+    # 1. Attempt Modern OpenAPI V3 Workflow
+    try:
+        report("Uploading source image to Tripo OpenAPI v3 storage...")
+        import uuid
+        boundary = f"----Boundary{uuid.uuid4().hex}"
+        body = (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file"; filename="{image_path.name}"\r\n'
+            f"Content-Type: {mime_type}\r\n\r\n"
+        ).encode("utf-8") + image_path.read_bytes() + f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+        upload_req = urllib.request.Request(
+            "https://openapi.tripo3d.ai/v3/files",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "User-Agent": "Omni-3D-Studio/2.0",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(upload_req, timeout=30) as u_resp:
+            u_data = json.loads(u_resp.read().decode("utf-8"))
+
+        file_token = u_data.get("data", {}).get("file_token")
+        if file_token:
+            report(f"Image uploaded (Token: {file_token[:16]}...). Dispatching image-to-model v3.1...")
+            gen_payload = {
+                "model": "v3.1-20260211",
+                "file": {
+                    "type": ext,
+                    "file_token": file_token,
+                },
+                "texture": True,
+                "pbr": True,
+            }
+            gen_req = urllib.request.Request(
+                "https://openapi.tripo3d.ai/v3/generation/image-to-model",
+                data=json.dumps(gen_payload).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Omni-3D-Studio/2.0",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(gen_req, timeout=30) as g_resp:
+                g_data = json.loads(g_resp.read().decode("utf-8"))
+
+            task_id = g_data.get("data", {}).get("task_id")
+            if task_id:
+                report(f"Job queued on Tripo3D cluster (Task ID: {task_id[:12]}...). Synthesizing neural geometry...")
+                poll_url = f"https://openapi.tripo3d.ai/v3/tasks/{task_id}"
+                poll_headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "Omni-3D-Studio/2.0"}
+
+                t0 = time.time()
+                glb_url = None
+                while time.time() - t0 < 300:
+                    time.sleep(3.0)
+                    try:
+                        p_req = urllib.request.Request(poll_url, headers=poll_headers, method="GET")
+                        with urllib.request.urlopen(p_req, timeout=20) as resp:
+                            task_resp = json.loads(resp.read().decode("utf-8"))
+                    except Exception as exc:
+                        report(f"Status poll retry ({exc})...")
+                        continue
+
+                    task_data = task_resp.get("data", {})
+                    status = task_data.get("status", "").lower()
+                    progress = task_data.get("progress", 0)
+
+                    report(f"Tripo3D Neural Synthesis in progress: {progress}% ({status})...")
+
+                    if status == "success":
+                        output = task_data.get("output", {})
+                        glb_url = output.get("pbr_model") or output.get("model") or output.get("model_url")
+                        break
+                    elif status in ("failed", "cancelled"):
+                        err_msg = task_data.get("error", "Generation aborted")
+                        if "credit" in err_msg.lower() or "quota" in err_msg.lower():
+                            return False, f"DEPLETED: {err_msg}", {}
+                        return False, f"Task {status}: {err_msg}", {}
+
+                if glb_url:
+                    report("Downloading high-detail neural GLB model from Tripo3D...")
+                    glb_dest = exports_dir / "model.glb"
+                    dl_req = urllib.request.Request(glb_url, headers={"User-Agent": "Omni-3D-Studio/2.0"})
+                    with urllib.request.urlopen(dl_req, timeout=60) as resp:
+                        glb_dest.write_bytes(resp.read())
+
+                    if any(f in formats for f in ("obj", "stl", "fbx")):
+                        report("Converting neural GLB to OBJ, STL, and FBX deliverables via Blender 5.2 LTS...")
+                        convert_glb_to_formats(glb_dest, exports_dir, formats)
+
+                    deliverables = {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}
+                    return True, "SUCCESS", {"success": True, "deliverables": deliverables}
+    except urllib.error.HTTPError as err:
+        err_body = err.read().decode("utf-8", errors="replace")
+        if err.code in (401, 403, 429) or "credit" in err_body.lower() or "quota" in err_body.lower():
+            return False, f"DEPLETED (HTTP {err.code}): {err_body}", {}
+    except Exception:
+        pass
+
+    # 2. Legacy V2 Workflow Fallback
+    img_bytes = image_path.read_bytes()
+    b64_data = base64.b64encode(img_bytes).decode("utf-8")
 
     create_url = "https://api.tripo3d.ai/v2/openapi/task"
     payload = {
