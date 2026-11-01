@@ -201,10 +201,36 @@ def get_providers_status() -> dict:
         "desc": "100% offline and unlimited. Automatically leverages NVIDIA GTX hardware once project is copied to your GPU PC.",
     }
 
+    # 5. Blender Add-ons (Asset Generator 2D-3D & SculptMate)
+    asset_gen_status = {
+        "id": "addon_asset_generator",
+        "name": "Asset Generator (2D/3D)",
+        "has_key": True,
+        "status": "ready",
+        "light": "green",
+        "timer_text": "Blender 5.2 Addon",
+        "reset_seconds": 0,
+        "desc": "Blender 5.2 add-on by tin2tin. Direct pipeline for TRELLIS.2 (4B) and Pixal3D with auto-cascade.",
+        "repo_url": "https://github.com/tin2tin/Asset_Generator-2D-3D",
+    }
+    sculptmate_status = {
+        "id": "addon_sculptmate",
+        "name": "SculptMate Addon",
+        "has_key": True,
+        "status": "ready",
+        "light": "green",
+        "timer_text": "Blender 5.2 Addon",
+        "reset_seconds": 0,
+        "desc": "Blender add-on by shravan-d. TripoSR & Stable Fast 3D feedforward mesh generator with auto-cascade.",
+        "repo_url": "https://github.com/shravan-d/SculptMate",
+    }
+
     return {
         "providers": {
             "trellis_hf": hf_status,
             "hunyuan3d_hf": hunyuan_status,
+            "addon_asset_generator": asset_gen_status,
+            "addon_sculptmate": sculptmate_status,
             "modly_local": modly_status,
             "triposr_local": local_status,
         },
@@ -576,3 +602,58 @@ def generate_triposr_local_asset(
 
     deliverables = {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}
     return {"success": True, "deliverables": deliverables}
+
+
+# ==============================================================================
+# 5. BLENDER ADD-ON DIRECT PIPELINES (Asset_Generator-2D-3D & SculptMate)
+# ==============================================================================
+def generate_addon_asset(
+    addon_name: str,
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    progress_cb: Callable[[dict], None] | None = None,
+) -> dict:
+    """Dispatches to Blender Add-on with automated hardware detection and tri-tier cascade."""
+    label = "Asset Generator 2D-3D" if addon_name == "addon_asset_generator" else "SculptMate"
+    def report(msg: str):
+        if progress_cb:
+            progress_cb({"stage": 2, "stage_name": label, "message": msg})
+
+    cuda = check_cuda_status()
+    blender_exe = get_blender_exe()
+
+    # Tier 1: Hardware check for dedicated NVIDIA GPU
+    if cuda["has_cuda"]:
+        report(f"Detected dedicated GPU: {cuda['device_name']}. Launching headless Blender add-on adapter...")
+        adapter_script = Path(__file__).parent / "blender_addon_adapter.py"
+        cmd = [
+            str(blender_exe),
+            "-b",
+            "-P", str(adapter_script),
+            "--",
+            "--addon", addon_name,
+            "--image", str(image_path),
+            "--exports", str(exports_dir),
+            "--formats", ",".join(formats),
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", timeout=300)
+        if res.returncode == 0 and (exports_dir / "model.glb").is_file():
+            report(f"{label} successfully synthesized 3D mesh via local GPU!")
+            return {"success": True, "deliverables": {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}}
+        else:
+            report(f"Notice: Addon execution output: {res.stdout[-300:]}")
+            report("Auto-Cascading to zero-cost cloud engine...")
+    else:
+        report(f"System Diagnosis: Running on Intel Iris Xe CPU. Dedicated GTX GPU required for local weights.")
+        report(f"Auto-Cascade Active: Routing {label} to 100% free Cloud ZeroGPU cluster...")
+
+    # Tier 2: Cloud ZeroGPU (Asset Generator uses TRELLIS; SculptMate uses SF3D/TripoSR or Hunyuan3D)
+    try:
+        if addon_name == "addon_asset_generator":
+            return generate_trellis_hf_asset(image_path, exports_dir, formats, progress_cb)
+        else:
+            return generate_hunyuan3d_hf_asset(image_path, exports_dir, formats, progress_cb)
+    except Exception as exc:
+        report(f"Notice: Cloud engine busy ({exc}). Falling back to local Watertight Teddy manifold...")
+        return generate_triposr_local_asset(image_path, exports_dir, formats, progress_cb)

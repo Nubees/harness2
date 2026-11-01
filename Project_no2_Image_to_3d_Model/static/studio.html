@@ -187,6 +187,10 @@
                 <option value="trellis_hf" selected>⚡ Microsoft TRELLIS (HuggingFace ZeroGPU · SOTA NeRF 360°)</option>
                 <option value="hunyuan3d_hf">🐉 Tencent Hunyuan3D-2 (HuggingFace ZeroGPU · 90K+ Face Mesh)</option>
               </optgroup>
+              <optgroup label="🧩 Blender Add-on Direct Engines">
+                <option value="addon_asset_generator">🧩 Asset Generator 2D-3D (tin2tin · TRELLIS.2 & Pixal3D)</option>
+                <option value="addon_sculptmate">🧩 SculptMate (shravan-d · TripoSR & SF3D)</option>
+              </optgroup>
               <optgroup label="💻 Local Machine / Offline Engines">
                 <option value="modly_local">🖥️ Modly Local AI (Local GPU · Hunyuan3D-2 / TRELLIS GGUF / TripoSG)</option>
                 <option value="triposr_local">💻 Local Offline TripoSR (GTX / Local Neural Weights)</option>
@@ -879,6 +883,14 @@
       'hunyuan3d_hf': {
         badge: 'Hunyuan3D-2 ZeroGPU',
         desc: 'Tencent Hunyuan3D-2 foundation model on Hugging Face ZeroGPU. High-res geometry with 90,000+ faces in seconds.'
+      },
+      'addon_asset_generator': {
+        badge: 'AssetGen Addon',
+        desc: 'Blender 5.2 add-on by tin2tin. Executes TRELLIS.2 (4B) and Pixal3D in isolated subprocesses with automatic mesh import.'
+      },
+      'addon_sculptmate': {
+        badge: 'SculptMate Addon',
+        desc: 'Blender add-on by shravan-d. Fast feedforward mesh synthesis with TripoSR and Stable Fast 3D texture baking.'
       },
       'modly_local': {
         badge: 'Modly Local AI',
