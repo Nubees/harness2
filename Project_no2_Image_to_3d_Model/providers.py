@@ -224,6 +224,17 @@ def get_providers_status() -> dict:
         "desc": "Blender add-on by shravan-d. TripoSR & Stable Fast 3D feedforward mesh generator with auto-cascade.",
         "repo_url": "https://github.com/shravan-d/SculptMate",
     }
+    plugin_2d_3d_status = {
+        "id": "addon_2d_to_3d",
+        "name": "Blender 2D to 3D Plugin",
+        "has_key": True,
+        "status": "ready",
+        "light": "green",
+        "timer_text": "Blender 5.2 Addon",
+        "reset_seconds": 0,
+        "desc": "Blender add-on by iamameme. Fast procedural contour extrusion, beveling, UV projection, and watertight mesh generation.",
+        "repo_url": "https://github.com/iamameme/blender-2d-to-3d-plugin",
+    }
 
     return {
         "providers": {
@@ -231,6 +242,7 @@ def get_providers_status() -> dict:
             "hunyuan3d_hf": hunyuan_status,
             "addon_asset_generator": asset_gen_status,
             "addon_sculptmate": sculptmate_status,
+            "addon_2d_to_3d": plugin_2d_3d_status,
             "modly_local": modly_status,
             "triposr_local": local_status,
         },
@@ -605,7 +617,7 @@ def generate_triposr_local_asset(
 
 
 # ==============================================================================
-# 5. BLENDER ADD-ON DIRECT PIPELINES (Asset_Generator-2D-3D & SculptMate)
+# 5. BLENDER ADD-ON DIRECT PIPELINES (Asset_Generator-2D-3D, SculptMate & 2D-to-3D)
 # ==============================================================================
 def generate_addon_asset(
     addon_name: str,
@@ -615,10 +627,40 @@ def generate_addon_asset(
     progress_cb: Callable[[dict], None] | None = None,
 ) -> dict:
     """Dispatches to Blender Add-on with automated hardware detection and tri-tier cascade."""
-    label = "Asset Generator 2D-3D" if addon_name == "addon_asset_generator" else "SculptMate"
+    if addon_name == "addon_asset_generator":
+        label = "Asset Generator 2D-3D"
+    elif addon_name == "addon_sculptmate":
+        label = "SculptMate"
+    else:
+        label = "Blender 2D-to-3D Plugin"
+
     def report(msg: str):
         if progress_cb:
             progress_cb({"stage": 2, "stage_name": label, "message": msg})
+
+    blender_exe = get_blender_exe()
+    adapter_script = Path(__file__).parent / "blender_addon_adapter.py"
+
+    # For addon_2d_to_3d: Pure CPU computational geometry, executes locally in ~3-4s
+    if addon_name == "addon_2d_to_3d":
+        report("Executing Blender 2D-to-3D Plugin: extracting contours, beveling & UV unwrapping...")
+        cmd = [
+            str(blender_exe),
+            "-b",
+            "-P", str(adapter_script),
+            "--",
+            "--addon", "addon_2d_to_3d",
+            "--image", str(image_path),
+            "--exports", str(exports_dir),
+            "--formats", ",".join(formats),
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", timeout=180)
+        if res.returncode == 0 and (exports_dir / "model.glb").is_file():
+            report("Blender 2D-to-3D Plugin successfully synthesized 3D mesh deliverables!")
+            return {"success": True, "deliverables": {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}}
+        else:
+            report(f"Addon note: {res.stdout[-300:]}. Cascading to Watertight Teddy manifold...")
+            return generate_triposr_local_asset(image_path, exports_dir, formats, progress_cb)
 
     cuda = check_cuda_status()
     blender_exe = get_blender_exe()

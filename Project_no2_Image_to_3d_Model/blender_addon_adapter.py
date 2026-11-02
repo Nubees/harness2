@@ -129,6 +129,49 @@ def run_sculptmate_headless(image_path: str, exports_dir: str, formats: list[str
     return False
 
 
+def run_2d_to_3d_plugin_headless(image_path: str, exports_dir: str, formats: list[str]) -> bool:
+    """Executes blender-2d-to-3d-plugin headlessly with automatic contour extrusion and UV projection."""
+    print(f"[Adapter:2D_to_3D] Processing image {image_path}...")
+    import site
+    user_site = site.getusersitepackages()
+    if user_site and user_site not in sys.path:
+        site.addsitedir(user_site)
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    import addon_utils
+    addon_utils.enable("blender_2d_to_3d_plugin", default_set=False)
+
+    wm = bpy.context.window_manager
+    if hasattr(wm, "image_to_mesh_settings"):
+        wm.image_to_mesh_settings.extrude_depth = 0.2
+        wm.image_to_mesh_settings.simplicity = 3.0
+        wm.image_to_mesh_settings.enclosed = False  # Rounded bevel extrusion
+        wm.image_to_mesh_settings.rounded = True
+        wm.image_to_mesh_settings.min_length = 80.0
+
+    print("[Adapter:2D_to_3D] Invoking object.image_to_mesh...")
+    try:
+        res = bpy.ops.object.image_to_mesh(filepath=os.path.abspath(image_path))
+        print(f"[Adapter:2D_to_3D] Operator returned: {res}")
+    except Exception as exc:
+        print(f"[Adapter:2D_to_3D] Operator execution error: {exc}")
+        return False
+
+    mesh_objs = [o for o in bpy.data.objects if o.type == "MESH"]
+    if mesh_objs:
+        print(f"[Adapter:2D_to_3D] Generated mesh found: {[o.name for o in mesh_objs]}")
+        out_glb = Path(exports_dir) / "model.glb"
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in mesh_objs:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = mesh_objs[0]
+        bpy.ops.export_scene.gltf(filepath=str(out_glb), export_format="GLB", use_selection=True)
+        return True
+
+    return False
+
+
 def export_additional_formats(exports_dir: Path, formats: list[str]):
     """Converts model.glb into OBJ, STL, FBX if requested."""
     out_glb = exports_dir / "model.glb"
@@ -149,7 +192,7 @@ def export_additional_formats(exports_dir: Path, formats: list[str]):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--addon", required=True, choices=["addon_asset_generator", "addon_sculptmate"])
+    parser.add_argument("--addon", required=True, choices=["addon_asset_generator", "addon_sculptmate", "addon_2d_to_3d"])
     parser.add_argument("--image", required=True)
     parser.add_argument("--exports", required=True)
     parser.add_argument("--formats", default="glb,obj,stl,fbx")
@@ -170,6 +213,8 @@ def main():
         success = run_asset_generator_headless(args.image, args.exports, formats)
     elif args.addon == "addon_sculptmate":
         success = run_sculptmate_headless(args.image, args.exports, formats)
+    elif args.addon == "addon_2d_to_3d":
+        success = run_2d_to_3d_plugin_headless(args.image, args.exports, formats)
 
     if success:
         export_additional_formats(exports_dir, formats)
