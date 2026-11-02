@@ -1124,7 +1124,7 @@ FINAL REQUIREMENTS (CRITICAL):
 
         # Stage 1 & 2: Route by Mesh Architecture Preset / Provider Engine
         actual_provider = quality_preset
-        if quality_preset in ("trellis_hf", "hunyuan3d_hf", "instantmesh_hf", "sf3d_hf", "unique3d_hf", "modly_local", "triposr_local", "addon_asset_generator", "addon_sculptmate", "addon_2d_to_3d"):
+        if quality_preset in ("trellis_hf", "hunyuan3d_hf", "instantmesh_hf", "sf3d_hf", "unique3d_hf", "pixal3d_hf", "modly_local", "triposr_local", "addon_asset_generator", "addon_sculptmate", "addon_2d_to_3d"):
             import providers
             report(1, "Perception", f"Dispatching image ({image_path.name}) to {quality_preset.upper()} engine...")
             script_file = job_dir / f"{quality_preset}_job.json"
@@ -1147,6 +1147,9 @@ FINAL REQUIREMENTS (CRITICAL):
                 elif quality_preset == "unique3d_hf":
                     providers.generate_unique3d_hf_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
                     actual_provider = "AiuniAI Unique3D (Hugging Face ZeroGPU)"
+                elif quality_preset == "pixal3d_hf":
+                    providers.generate_pixal3d_hf_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
+                    actual_provider = "TencentARC Pixal3D (Hugging Face ZeroGPU)"
                 elif quality_preset == "addon_asset_generator":
                     providers.generate_addon_asset("addon_asset_generator", image_path, exports_dir, formats, progress_cb=progress_cb)
                     actual_provider = "Asset Generator 2D-3D (Blender 5.2 Add-on)"
@@ -1279,7 +1282,7 @@ FINAL REQUIREMENTS (CRITICAL):
         # Stage 3: Headless Blender Compilation (only for procedural/script presets)
         provider_preset_ids = (
             "tripo3d", "meshy", "trellis_hf", "hunyuan3d_hf", "instantmesh_hf",
-            "sf3d_hf", "unique3d_hf", "modly_local", "triposr_local",
+            "sf3d_hf", "unique3d_hf", "pixal3d_hf", "modly_local", "triposr_local",
             "addon_asset_generator", "addon_sculptmate", "addon_2d_to_3d"
         )
         if quality_preset not in provider_preset_ids:
