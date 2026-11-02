@@ -42,6 +42,7 @@ def load_keys() -> dict:
             "trellis_hf": 0,
             "hunyuan3d_hf": 0,
             "instantmesh_hf": 0,
+            "sf3d_hf": 0,
         },
         "hf_token": "",
     }
@@ -187,6 +188,21 @@ def get_providers_status() -> dict:
         "signup_url": "https://huggingface.co/spaces/TencentARC/InstantMesh",
     }
 
+    # 4. Stability AI Stable Fast 3D (SF3D) Status
+    sf3d_status = {
+        "id": "sf3d_hf",
+        "name": "Stability AI Stable Fast 3D",
+        "has_key": len(hf_tokens) > 0,
+        "key_count": len(hf_tokens),
+        "active_index": active_hf_idx,
+        "status": "ready",
+        "light": "green",
+        "timer_text": "ZeroGPU 0.5s",
+        "reset_seconds": 0,
+        "desc": "Stability AI Stable Fast 3D (SF3D) on ZeroGPU: ultra-fast feedforward mesh synthesis with UV unwrapped PBR textures (~0.5-2.0s).",
+        "signup_url": "https://huggingface.co/spaces/stabilityai/stable-fast-3d",
+    }
+
     # 3. Modly Local AI (lightningpixel/modly)
     modly_status = {
         "id": "modly_local",
@@ -257,6 +273,7 @@ def get_providers_status() -> dict:
             "trellis_hf": hf_status,
             "hunyuan3d_hf": hunyuan_status,
             "instantmesh_hf": instantmesh_status,
+            "sf3d_hf": sf3d_status,
             "addon_asset_generator": asset_gen_status,
             "addon_sculptmate": sculptmate_status,
             "addon_2d_to_3d": plugin_2d_3d_status,
@@ -267,11 +284,13 @@ def get_providers_status() -> dict:
             "trellis_hf": hf_token_details,
             "hunyuan3d_hf": hf_token_details,
             "instantmesh_hf": hf_token_details,
+            "sf3d_hf": hf_token_details,
         },
         "active_indices": {
             "trellis_hf": active_hf_idx,
             "hunyuan3d_hf": active_hf_idx,
             "instantmesh_hf": active_hf_idx,
+            "sf3d_hf": active_hf_idx,
         },
         "keys_configured": {
             "hf_token": len(hf_tokens) > 0,
@@ -647,7 +666,199 @@ def generate_instantmesh_hf_asset(
 
 
 # ==============================================================================
-# 4. MODLY LOCAL AI GENERATOR (lightningpixel/modly)
+# 4. STABILITY AI STABLE FAST 3D (SF3D) ZERO-GPU GENERATOR
+# ==============================================================================
+def _execute_sf3d_single(
+    hf_token: str,
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    report: Callable[[str], None],
+    foreground_ratio: float = 0.85,
+    remesh_option: str = "Triangle",
+    vertex_count: int = -1,
+    texture_size: int = 1024,
+) -> dict:
+    """Execute Stability AI Stable Fast 3D (SF3D) via Gradio Client on ZeroGPU."""
+    from gradio_client import Client, handle_file
+    from PIL import Image
+    import shutil
+
+    if hf_token:
+        os.environ["HF_TOKEN"] = hf_token
+    elif "HF_TOKEN" in os.environ:
+        del os.environ["HF_TOKEN"]
+
+    report("Connecting to Stability AI Stable Fast 3D (SF3D) on ZeroGPU cluster...")
+    client = Client(
+        "stabilityai/stable-fast-3d",
+        token=hf_token or None,
+        _skip_components=False,
+        httpx_kwargs={"timeout": 180.0},
+    )
+
+    try:
+        has_alpha = False
+        try:
+            with Image.open(image_path) as im:
+                if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+                    extrema = im.convert("RGBA").getchannel("A").getextrema()
+                    if extrema[0] < 255:
+                        has_alpha = True
+        except Exception:
+            pass
+
+        report("Stage 1/2: Inspecting image alpha transparency & background (/requires_bg_remove)...")
+        req = client.predict(
+            image=handle_file(str(image_path)),
+            fr=foreground_ratio,
+            api_name="/requires_bg_remove",
+        )
+
+        btn_val = "Run"
+        if isinstance(req, (list, tuple)) and len(req) > 0:
+            first_item = req[0]
+            if isinstance(first_item, dict):
+                btn_val = first_item.get("value", "Run")
+            elif isinstance(first_item, str):
+                btn_val = first_item
+
+        if btn_val == "Remove Background" or not has_alpha:
+            report("Stage 1b: Image is opaque — synthesizing foreground cutout via remote ZeroGPU rembg...")
+            client.predict(
+                "Remove Background",
+                handle_file(str(image_path)),
+                None,
+                foreground_ratio,
+                remesh_option,
+                vertex_count,
+                texture_size,
+                fn_index=5,
+            )
+        else:
+            report("Stage 1b: Image contains native transparency. Skipping remote background removal...")
+
+        report(f"Stage 2/2: Synthesizing fast UV-unwrapped 3D mesh via SF3D ({remesh_option} remesh, texture: {texture_size})...")
+        res_run = client.predict(
+            "Run",
+            handle_file(str(image_path)),
+            None,
+            foreground_ratio,
+            remesh_option,
+            vertex_count,
+            texture_size,
+            fn_index=5,
+        )
+
+        glb_source = None
+        if isinstance(res_run, (list, tuple)) and len(res_run) > 4:
+            item = res_run[4]
+            if isinstance(item, dict):
+                glb_source = item.get("value") or item.get("path")
+            elif isinstance(item, str):
+                glb_source = item
+        elif isinstance(res_run, str):
+            glb_source = res_run
+
+        if not glb_source or not Path(glb_source).is_file():
+            raise RuntimeError(f"SF3D returned invalid mesh output: {res_run}")
+
+        glb_dest = exports_dir / "model.glb"
+        shutil.copy2(glb_source, glb_dest)
+        report(f"SF3D neural model retrieved successfully ({round(glb_dest.stat().st_size / 1024, 1)} KB).")
+
+        # Post-process & convert formats via headless Blender
+        if any(f in formats for f in ("obj", "stl", "fbx")):
+            report("Converting SF3D deliverables to OBJ, STL, and FBX via Blender 5.2 LTS...")
+            convert_glb_to_formats(glb_dest, exports_dir, formats)
+
+        deliverables = {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}
+        return {"success": True, "deliverables": deliverables}
+
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def generate_sf3d_hf_asset(
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    progress_cb: Callable[[dict], None] | None = None,
+    foreground_ratio: float = 0.85,
+    remesh_option: str = "Triangle",
+    vertex_count: int = -1,
+    texture_size: int = 1024,
+) -> dict:
+    """Generate 3D model using Stability AI Stable Fast 3D with token pool rotation and multi-tier cascade."""
+    keys_data = load_keys()
+    pool = keys_data.get("hf_tokens", [])
+
+    def report(msg: str):
+        if progress_cb:
+            progress_cb({"stage": 2, "stage_name": "Stable Fast 3D (HF)", "message": msg})
+
+    if not pool:
+        report("No user tokens configured. Connecting to Stability AI SF3D public ZeroGPU pool...")
+        try:
+            return _execute_sf3d_single("", image_path, exports_dir, formats, report, foreground_ratio, remesh_option, vertex_count, texture_size)
+        except Exception as exc:
+            report(f"Notice: SF3D public pool busy ({exc}). Cascading to Tencent Hunyuan3D-2...")
+            return generate_hunyuan3d_hf_asset(image_path, exports_dir, formats, progress_cb)
+
+    total_keys = len(pool)
+    start_idx = keys_data.get("active_indices", {}).get("sf3d_hf", 0) % total_keys
+
+    errors_encountered = []
+    for attempt in range(total_keys):
+        curr_idx = (start_idx + attempt) % total_keys
+        curr_token = pool[curr_idx]
+        masked = (curr_token[:6] + "..." + curr_token[-4:]) if len(curr_token) > 10 else "***"
+
+        report(f"[Token Rotation] Connecting to SF3D with HF Token #{curr_idx + 1}/{total_keys} ({masked})...")
+        try:
+            res = _execute_sf3d_single(curr_token, image_path, exports_dir, formats, report, foreground_ratio, remesh_option, vertex_count, texture_size)
+            keys_data.setdefault("active_indices", {})["sf3d_hf"] = curr_idx
+            save_keys(keys_data)
+            report(f"SF3D model synthesized successfully using Token #{curr_idx + 1}!")
+            return res
+        except Exception as exc:
+            err_msg = str(exc)
+            errors_encountered.append(f"Token #{curr_idx + 1}: {err_msg}")
+            next_idx = (curr_idx + 1) % total_keys
+            keys_data.setdefault("active_indices", {})["sf3d_hf"] = next_idx
+            save_keys(keys_data)
+
+            if attempt < total_keys - 1:
+                report(f"[Token Rotation] Token #{curr_idx + 1} quota limit ({err_msg[:80]}...). Switching to Token #{next_idx + 1}/{total_keys}...")
+            else:
+                report(f"[Token Rotation] All tokens encountered quota limits. Trying public ZeroGPU pool...")
+
+    try:
+        keys_data.setdefault("active_indices", {})["sf3d_hf"] = 0
+        save_keys(keys_data)
+        return _execute_sf3d_single("", image_path, exports_dir, formats, report, foreground_ratio, remesh_option, vertex_count, texture_size)
+    except Exception as exc:
+        report(f"Notice: SF3D ZeroGPU quota exhausted ({exc[:90]}). Auto-Cascading to Tencent Hunyuan3D-2...")
+        try:
+            return generate_hunyuan3d_hf_asset(image_path, exports_dir, formats, progress_cb)
+        except Exception as hunyuan_err:
+            report(f"Notice: Hunyuan3D busy ({hunyuan_err[:90]}). Cascading to TencentARC InstantMesh...")
+            try:
+                return generate_instantmesh_hf_asset(image_path, exports_dir, formats, progress_cb)
+            except Exception as instant_err:
+                report(f"Notice: InstantMesh busy ({instant_err[:90]}). Cascading to Microsoft TRELLIS...")
+                try:
+                    return generate_trellis_hf_asset(image_path, exports_dir, formats, progress_cb)
+                except Exception:
+                    report("Notice: Cloud models busy. Cascading to SOTA Watertight Teddy manifold...")
+                    return generate_triposr_local_asset(image_path, exports_dir, formats, progress_cb)
+
+
+# ==============================================================================
+# 5. MODLY LOCAL AI GENERATOR (lightningpixel/modly)
 # ==============================================================================
 def generate_modly_asset(
     image_path: Path,
@@ -839,12 +1050,12 @@ def generate_addon_asset(
         report(f"System Diagnosis: Running on Intel Iris Xe CPU. Dedicated GTX GPU required for local weights.")
         report(f"Auto-Cascade Active: Routing {label} to 100% free Cloud ZeroGPU cluster...")
 
-    # Tier 2: Cloud ZeroGPU (Asset Generator uses TRELLIS; SculptMate uses SF3D/TripoSR or Hunyuan3D)
+    # Tier 2: Cloud ZeroGPU (Asset Generator uses TRELLIS; SculptMate uses SF3D with auto-cascade)
     try:
         if addon_name == "addon_asset_generator":
             return generate_trellis_hf_asset(image_path, exports_dir, formats, progress_cb)
         else:
-            return generate_hunyuan3d_hf_asset(image_path, exports_dir, formats, progress_cb)
+            return generate_sf3d_hf_asset(image_path, exports_dir, formats, progress_cb)
     except Exception as exc:
         report(f"Notice: Cloud engine busy ({exc}). Falling back to local Watertight Teddy manifold...")
         return generate_triposr_local_asset(image_path, exports_dir, formats, progress_cb)

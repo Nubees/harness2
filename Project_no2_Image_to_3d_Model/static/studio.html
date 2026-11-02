@@ -187,6 +187,7 @@
                 <option value="trellis_hf" selected>⚡ Microsoft TRELLIS (HuggingFace ZeroGPU · SOTA NeRF 360°)</option>
                 <option value="hunyuan3d_hf">🐉 Tencent Hunyuan3D-2 (HuggingFace ZeroGPU · 90K+ Face Mesh)</option>
                 <option value="instantmesh_hf">⚡ TencentARC InstantMesh (HuggingFace ZeroGPU · LRM Triplane)</option>
+                <option value="sf3d_hf">⚡ Stability AI SF3D (HuggingFace ZeroGPU · 0.5s Fast Mesh)</option>
               </optgroup>
               <optgroup label="🧩 Blender Add-on Direct Engines">
                 <option value="addon_asset_generator">🧩 Asset Generator 2D-3D (tin2tin · TRELLIS.2 & Pixal3D)</option>
@@ -889,6 +890,10 @@
       'instantmesh_hf': {
         badge: 'InstantMesh (HF)',
         desc: 'TencentARC InstantMesh feedforward Large Reconstruction Model on Hugging Face ZeroGPU. Synthesizes 3D mesh via sparse-view diffusion in ~10-15s.'
+      },
+      'sf3d_hf': {
+        badge: 'SF3D ZeroGPU',
+        desc: 'Stability AI Stable Fast 3D on Hugging Face ZeroGPU. Ultra-fast feedforward mesh generation with UV unwrapped PBR textures in ~0.5-2.0s.'
       },
       'addon_asset_generator': {
         badge: 'AssetGen Addon',
