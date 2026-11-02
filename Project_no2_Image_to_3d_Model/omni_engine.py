@@ -1124,7 +1124,7 @@ FINAL REQUIREMENTS (CRITICAL):
 
         # Stage 1 & 2: Route by Mesh Architecture Preset / Provider Engine
         actual_provider = quality_preset
-        if quality_preset in ("trellis_hf", "hunyuan3d_hf", "modly_local", "triposr_local", "addon_asset_generator", "addon_sculptmate", "addon_2d_to_3d"):
+        if quality_preset in ("trellis_hf", "hunyuan3d_hf", "instantmesh_hf", "modly_local", "triposr_local", "addon_asset_generator", "addon_sculptmate", "addon_2d_to_3d"):
             import providers
             report(1, "Perception", f"Dispatching image ({image_path.name}) to {quality_preset.upper()} engine...")
             script_file = job_dir / f"{quality_preset}_job.json"
@@ -1138,6 +1138,9 @@ FINAL REQUIREMENTS (CRITICAL):
                 elif quality_preset == "hunyuan3d_hf":
                     providers.generate_hunyuan3d_hf_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
                     actual_provider = "Tencent Hunyuan3D-2 (Hugging Face ZeroGPU)"
+                elif quality_preset == "instantmesh_hf":
+                    providers.generate_instantmesh_hf_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
+                    actual_provider = "TencentARC InstantMesh (Hugging Face ZeroGPU)"
                 elif quality_preset == "addon_asset_generator":
                     providers.generate_addon_asset("addon_asset_generator", image_path, exports_dir, formats, progress_cb=progress_cb)
                     actual_provider = "Asset Generator 2D-3D (Blender 5.2 Add-on)"

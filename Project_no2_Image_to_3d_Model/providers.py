@@ -41,6 +41,7 @@ def load_keys() -> dict:
         "active_indices": {
             "trellis_hf": 0,
             "hunyuan3d_hf": 0,
+            "instantmesh_hf": 0,
         },
         "hf_token": "",
     }
@@ -171,6 +172,21 @@ def get_providers_status() -> dict:
         "signup_url": "https://huggingface.co/spaces/tencent/Hunyuan3D-2",
     }
 
+    # 3. TencentARC InstantMesh (HF) Status
+    instantmesh_status = {
+        "id": "instantmesh_hf",
+        "name": "TencentARC InstantMesh",
+        "has_key": len(hf_tokens) > 0,
+        "key_count": len(hf_tokens),
+        "active_index": active_hf_idx,
+        "status": "ready",
+        "light": "green",
+        "timer_text": "ZeroGPU LRM",
+        "reset_seconds": 0,
+        "desc": "TencentARC InstantMesh feedforward Large Reconstruction Model on ZeroGPU (~10-15s, 100% Free)",
+        "signup_url": "https://huggingface.co/spaces/TencentARC/InstantMesh",
+    }
+
     # 3. Modly Local AI (lightningpixel/modly)
     modly_status = {
         "id": "modly_local",
@@ -240,6 +256,7 @@ def get_providers_status() -> dict:
         "providers": {
             "trellis_hf": hf_status,
             "hunyuan3d_hf": hunyuan_status,
+            "instantmesh_hf": instantmesh_status,
             "addon_asset_generator": asset_gen_status,
             "addon_sculptmate": sculptmate_status,
             "addon_2d_to_3d": plugin_2d_3d_status,
@@ -248,9 +265,13 @@ def get_providers_status() -> dict:
         },
         "pools": {
             "trellis_hf": hf_token_details,
+            "hunyuan3d_hf": hf_token_details,
+            "instantmesh_hf": hf_token_details,
         },
         "active_indices": {
             "trellis_hf": active_hf_idx,
+            "hunyuan3d_hf": active_hf_idx,
+            "instantmesh_hf": active_hf_idx,
         },
         "keys_configured": {
             "hf_token": len(hf_tokens) > 0,
@@ -498,7 +519,135 @@ def generate_hunyuan3d_hf_asset(
 
 
 # ==============================================================================
-# 3. MODLY LOCAL AI GENERATOR (lightningpixel/modly)
+# 3. TENCENTARC INSTANTMESH ZERO-GPU GENERATOR
+# ==============================================================================
+def _execute_instantmesh_single(
+    hf_token: str,
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    report: Callable[[str], None],
+) -> dict:
+    from gradio_client import Client, handle_file
+    import shutil
+
+    if hf_token:
+        os.environ["HF_TOKEN"] = hf_token
+    elif "HF_TOKEN" in os.environ:
+        del os.environ["HF_TOKEN"]
+
+    report("Connecting to TencentARC InstantMesh on ZeroGPU cluster...")
+    client = Client("TencentARC/InstantMesh", token=hf_token or None, httpx_kwargs={"timeout": 180.0})
+
+    report("Stage 1/3: Removing background & isolating silhouette (/preprocess)...")
+    prep_img = client.predict(
+        input_image=handle_file(str(image_path)),
+        do_remove_background=True,
+        api_name="/preprocess",
+    )
+    if isinstance(prep_img, dict) and "path" in prep_img:
+        prep_img = prep_img["path"]
+
+    report("Stage 2/3: Synthesizing multi-view diffusion frames (/generate_mvs)...")
+    client.predict(
+        input_image=handle_file(str(prep_img)),
+        sample_steps=35,
+        sample_seed=42,
+        api_name="/generate_mvs",
+    )
+
+    report("Stage 3/3: Reconstructing 3D triplane & FlexiCubes mesh (/make3d)...")
+    make3d_res = client.predict(
+        api_name="/make3d",
+    )
+
+    glb_source = None
+    if isinstance(make3d_res, (list, tuple)) and len(make3d_res) >= 2:
+        glb_source = make3d_res[1] or make3d_res[0]
+    elif isinstance(make3d_res, str):
+        glb_source = make3d_res
+
+    if not glb_source or not Path(glb_source).is_file():
+        raise RuntimeError(f"InstantMesh returned invalid mesh output: {make3d_res}")
+
+    glb_dest = exports_dir / "model.glb"
+    shutil.copy2(glb_source, glb_dest)
+    report(f"InstantMesh neural model retrieved successfully ({round(glb_dest.stat().st_size / 1024, 1)} KB).")
+
+    # Post-process & convert formats via Blender
+    if any(f in formats for f in ("obj", "stl", "fbx")):
+        report("Converting InstantMesh deliverables & calibrating coordinates via Blender 5.2 LTS...")
+        convert_glb_to_formats(glb_dest, exports_dir, formats)
+
+    deliverables = {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}
+    return {"success": True, "deliverables": deliverables}
+
+
+def generate_instantmesh_hf_asset(
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    progress_cb: Callable[[dict], None] | None = None,
+) -> dict:
+    """Generate 3D model using TencentARC InstantMesh with token rotation and multi-tier cascade."""
+    keys_data = load_keys()
+    pool = keys_data.get("hf_tokens", [])
+
+    def report(msg: str):
+        if progress_cb:
+            progress_cb({"stage": 2, "stage_name": "InstantMesh (HF)", "message": msg})
+
+    if not pool:
+        report("No user tokens configured. Connecting to TencentARC InstantMesh public ZeroGPU pool...")
+        try:
+            return _execute_instantmesh_single("", image_path, exports_dir, formats, report)
+        except Exception as exc:
+            report(f"Notice: InstantMesh public pool busy ({exc}). Cascading to Tencent Hunyuan3D-2...")
+            return generate_hunyuan3d_hf_asset(image_path, exports_dir, formats, progress_cb)
+
+    total_keys = len(pool)
+    start_idx = keys_data.get("active_indices", {}).get("instantmesh_hf", 0) % total_keys
+
+    errors_encountered = []
+    for attempt in range(total_keys):
+        curr_idx = (start_idx + attempt) % total_keys
+        curr_token = pool[curr_idx]
+        masked = (curr_token[:6] + "..." + curr_token[-4:]) if len(curr_token) > 10 else "***"
+
+        report(f"[Token Rotation] Connecting to InstantMesh with HF Token #{curr_idx + 1}/{total_keys} ({masked})...")
+        try:
+            res = _execute_instantmesh_single(curr_token, image_path, exports_dir, formats, report)
+            keys_data["active_indices"]["instantmesh_hf"] = curr_idx
+            save_keys(keys_data)
+            report(f"InstantMesh model synthesized successfully using Token #{curr_idx + 1}!")
+            return res
+        except Exception as exc:
+            err_msg = str(exc)
+            errors_encountered.append(f"Token #{curr_idx + 1}: {err_msg}")
+            next_idx = (curr_idx + 1) % total_keys
+            keys_data["active_indices"]["instantmesh_hf"] = next_idx
+            save_keys(keys_data)
+
+            if attempt < total_keys - 1:
+                report(f"[Token Rotation] Token #{curr_idx + 1} quota limit ({err_msg[:80]}...). Switching to Token #{next_idx + 1}/{total_keys}...")
+            else:
+                report(f"[Token Rotation] All tokens encountered quota limits. Trying public ZeroGPU pool...")
+
+    try:
+        keys_data["active_indices"]["instantmesh_hf"] = 0
+        save_keys(keys_data)
+        return _execute_instantmesh_single("", image_path, exports_dir, formats, report)
+    except Exception as exc:
+        report(f"Notice: InstantMesh ZeroGPU quota exhausted ({exc[:90]}). Auto-Cascading to Tencent Hunyuan3D-2...")
+        try:
+            return generate_hunyuan3d_hf_asset(image_path, exports_dir, formats, progress_cb)
+        except Exception as hunyuan_err:
+            report(f"Notice: Hunyuan3D busy ({hunyuan_err[:90]}). Cascading to SOTA Watertight Teddy manifold...")
+            return generate_triposr_local_asset(image_path, exports_dir, formats, progress_cb)
+
+
+# ==============================================================================
+# 4. MODLY LOCAL AI GENERATOR (lightningpixel/modly)
 # ==============================================================================
 def generate_modly_asset(
     image_path: Path,
