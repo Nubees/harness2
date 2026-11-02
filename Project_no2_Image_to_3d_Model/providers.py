@@ -241,6 +241,24 @@ def get_providers_status() -> dict:
         "signup_url": "https://huggingface.co/spaces/TencentARC/Pixal3D",
     }
 
+    # 7. Stable-X / GAP Lab Hi3DGen (Normal-Bridged DetailVerse Diffusion)
+    active_hi3dgen_idx = keys.get("active_indices", {}).get("hi3dgen_hf", 0)
+    if hf_tokens:
+        active_hi3dgen_idx = active_hi3dgen_idx % len(hf_tokens)
+    hi3dgen_status = {
+        "id": "hi3dgen_hf",
+        "name": "Stable-X Hi3DGen",
+        "has_key": len(hf_tokens) > 0,
+        "key_count": len(hf_tokens),
+        "active_index": active_hi3dgen_idx,
+        "status": "ready",
+        "light": "green",
+        "timer_text": "ZeroGPU Normal Bridge",
+        "reset_seconds": 0,
+        "desc": "Stable-X / GAP Lab Hi3DGen on ZeroGPU: high-fidelity 3D geometry via NiRNE normal bridging & DetailVerse diffusion (~20-30s).",
+        "signup_url": "https://huggingface.co/spaces/Stable-X/Hi3DGen",
+    }
+
     # 3. Modly Local AI (lightningpixel/modly)
     modly_status = {
         "id": "modly_local",
@@ -314,6 +332,7 @@ def get_providers_status() -> dict:
             "sf3d_hf": sf3d_status,
             "unique3d_hf": unique3d_status,
             "pixal3d_hf": pixal3d_status,
+            "hi3dgen_hf": hi3dgen_status,
             "addon_asset_generator": asset_gen_status,
             "addon_sculptmate": sculptmate_status,
             "addon_2d_to_3d": plugin_2d_3d_status,
@@ -327,6 +346,7 @@ def get_providers_status() -> dict:
             "sf3d_hf": hf_token_details,
             "unique3d_hf": hf_token_details,
             "pixal3d_hf": hf_token_details,
+            "hi3dgen_hf": hf_token_details,
         },
         "active_indices": {
             "trellis_hf": active_hf_idx,
@@ -335,6 +355,7 @@ def get_providers_status() -> dict:
             "sf3d_hf": active_hf_idx,
             "unique3d_hf": active_unique3d_idx,
             "pixal3d_hf": active_pixal3d_idx,
+            "hi3dgen_hf": active_hi3dgen_idx,
         },
         "keys_configured": {
             "hf_token": len(hf_tokens) > 0,
@@ -1278,6 +1299,162 @@ def generate_pixal3d_hf_asset(
         return _execute_pixal3d_single("", image_path, exports_dir, formats, report, resolution, decimation_target, texture_size, seed)
     except Exception as exc:
         report(f"Notice: Pixal3D ZeroGPU busy or quota exhausted ({str(exc)[:80]}...). Auto-Cascading...")
+
+    # 6-Tier Cascade Fallback:
+    # Tier 2: Stability AI SF3D (ultra-fast, requests only 30s ZeroGPU quota)
+    try:
+        report("Cascade Tier 2: Routing to Stability AI Stable Fast 3D (SF3D)...")
+        return generate_sf3d_hf_asset(image_path, exports_dir, formats, progress_cb)
+    except Exception as sf3d_err:
+        report(f"Notice: SF3D busy ({str(sf3d_err)[:70]}). Cascading to Tier 3: Tencent Hunyuan3D-2...")
+
+    # Tier 3: Tencent Hunyuan3D-2
+    try:
+        report("Cascade Tier 3: Routing to Tencent Hunyuan3D-2...")
+        return generate_hunyuan3d_hf_asset(image_path, exports_dir, formats, progress_cb)
+    except Exception as hunyuan_err:
+        report(f"Notice: Hunyuan3D-2 busy ({str(hunyuan_err)[:70]}). Cascading to Tier 4: TencentARC InstantMesh...")
+
+    # Tier 4: TencentARC InstantMesh
+    try:
+        report("Cascade Tier 4: Routing to TencentARC InstantMesh...")
+        return generate_instantmesh_hf_asset(image_path, exports_dir, formats, progress_cb)
+    except Exception as instant_err:
+        report(f"Notice: InstantMesh busy ({str(instant_err)[:70]}). Cascading to Tier 5: Microsoft TRELLIS...")
+
+    # Tier 5: Microsoft TRELLIS
+    try:
+        report("Cascade Tier 5: Routing to Microsoft TRELLIS...")
+        return generate_trellis_hf_asset(image_path, exports_dir, formats, progress_cb)
+    except Exception as trellis_err:
+        report(f"Notice: Cloud ZeroGPU clusters busy ({str(trellis_err)[:70]}). Cascading to Tier 6: Local Teddy Watertight Manifold...")
+
+    # Tier 6: Local Deterministic Watertight Manifold (100% reliable CPU execution)
+    report("Cascade Tier 6: Synthesizing deterministic watertight Teddy manifold...")
+    return generate_triposr_local_asset(image_path, exports_dir, formats, progress_cb)
+
+
+# ==============================================================================
+# 5c. STABLE-X / GAP LAB HI3DGEN (NORMAL-BRIDGED DETAILVERSE DIFFUSION)
+# ==============================================================================
+def _execute_hi3dgen_single(
+    hf_token: str,
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    report: Callable[[str], None],
+    seed: float = 0,
+    ss_guidance_strength: float = 3.0,
+    ss_sampling_steps: int = 25,
+    slat_guidance_strength: float = 3.0,
+    slat_sampling_steps: int = 6,
+) -> dict:
+    """Execute Stable-X/Hi3DGen pipeline on Hugging Face ZeroGPU.
+
+    Pipeline Steps:
+    1. /generate_3d: NiRNE image-to-normal estimation + NoRLD geometry diffusion
+    2. Download resulting high-frequency mesh.glb
+    3. Headless Blender 5.2 LTS conversion to OBJ, STL, FBX deliverables.
+    """
+    from gradio_client import Client, handle_file
+    import shutil
+
+    report("Connecting to Stable-X/Hi3DGen ZeroGPU cluster...")
+    client = Client("Stable-X/Hi3DGen", token=hf_token or None, httpx_kwargs={"timeout": 300.0})
+
+    report("Stage 1/2: Synthesizing NiRNE normal bridge & 3D latent geometry (/generate_3d)...")
+    try:
+        res = client.predict(
+            image=handle_file(str(image_path)),
+            seed=float(seed),
+            ss_guidance_strength=float(ss_guidance_strength),
+            ss_sampling_steps=float(ss_sampling_steps),
+            slat_guidance_strength=float(slat_guidance_strength),
+            slat_sampling_steps=float(slat_sampling_steps),
+            api_name="/generate_3d",
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Hi3DGen geometry synthesis failed: {exc}")
+
+    glb_source = None
+    if isinstance(res, (list, tuple)) and len(res) >= 3:
+        glb_source = res[2] or res[3]
+    elif isinstance(res, str):
+        glb_source = res
+
+    if not glb_source or not Path(glb_source).is_file():
+        raise RuntimeError(f"Hi3DGen returned invalid GLB output: {res}")
+
+    glb_dest = exports_dir / "model.glb"
+    shutil.copy2(glb_source, glb_dest)
+    file_size_mb = round(glb_dest.stat().st_size / (1024 * 1024), 2)
+    report(f"Hi3DGen GLB model downloaded successfully ({file_size_mb} MB).")
+
+    if any(f in formats for f in ("obj", "stl", "fbx")):
+        report("Converting Hi3DGen GLB to OBJ, STL, and FBX deliverables via Blender 5.2 LTS...")
+        convert_mesh_to_formats(glb_dest, exports_dir, formats)
+
+    deliverables = {
+        fmt: exports_dir / f"model.{fmt}"
+        for fmt in formats
+        if (exports_dir / f"model.{fmt}").is_file()
+    }
+    return {
+        "success": True,
+        "deliverables": deliverables,
+        "provider": "hi3dgen_hf",
+        "mesh_source": "Stable-X/Hi3DGen",
+    }
+
+
+def generate_hi3dgen_hf_asset(
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    progress_cb: Callable[[dict], None] | None = None,
+    seed: float = 0,
+    ss_guidance_strength: float = 3.0,
+    ss_sampling_steps: int = 25,
+    slat_guidance_strength: float = 3.0,
+    slat_sampling_steps: int = 6,
+) -> dict:
+    """Generate 3D model using Stable-X Hi3DGen with token pool rotation and 6-tier auto-cascade."""
+    keys_data = load_keys()
+    pool = keys_data.get("hf_tokens", [])
+
+    def report(msg: str):
+        if progress_cb:
+            progress_cb({"stage": 2, "stage_name": "Hi3DGen (HF)", "message": msg})
+
+    # Tier 1: Try configured HF tokens with rotation
+    if pool:
+        total_keys = len(pool)
+        start_idx = keys_data.get("active_indices", {}).get("hi3dgen_hf", 0) % total_keys
+
+        for attempt in range(total_keys):
+            curr_idx = (start_idx + attempt) % total_keys
+            curr_token = pool[curr_idx]
+            masked = (curr_token[:6] + "..." + curr_token[-4:]) if len(curr_token) > 10 else "***"
+            report(f"[Token Rotation] Hi3DGen Token #{curr_idx + 1}/{total_keys} ({masked})...")
+            try:
+                res = _execute_hi3dgen_single(curr_token, image_path, exports_dir, formats, report, seed, ss_guidance_strength, ss_sampling_steps, slat_guidance_strength, slat_sampling_steps)
+                keys_data.setdefault("active_indices", {})["hi3dgen_hf"] = curr_idx
+                save_keys(keys_data)
+                report(f"Hi3DGen asset synthesized successfully using Token #{curr_idx + 1}!")
+                return res
+            except Exception as exc:
+                err_msg = str(exc)
+                next_idx = (curr_idx + 1) % total_keys
+                keys_data.setdefault("active_indices", {})["hi3dgen_hf"] = next_idx
+                save_keys(keys_data)
+                report(f"[Notice] Hi3DGen Token #{curr_idx + 1} quota limit: {err_msg[:80]}...")
+
+    # Tier 1b: Try public anonymous pool
+    try:
+        report("Trying Hi3DGen public community pool...")
+        return _execute_hi3dgen_single("", image_path, exports_dir, formats, report, seed, ss_guidance_strength, ss_sampling_steps, slat_guidance_strength, slat_sampling_steps)
+    except Exception as exc:
+        report(f"Notice: Hi3DGen ZeroGPU busy or quota exhausted ({str(exc)[:80]}...). Auto-Cascading...")
 
     # 6-Tier Cascade Fallback:
     # Tier 2: Stability AI SF3D (ultra-fast, requests only 30s ZeroGPU quota)
