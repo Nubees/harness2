@@ -203,6 +203,24 @@ def get_providers_status() -> dict:
         "signup_url": "https://huggingface.co/spaces/stabilityai/stable-fast-3d",
     }
 
+    # 5. AiuniAI / Tsinghua Unique3D Status
+    active_unique3d_idx = keys.get("active_indices", {}).get("unique3d_hf", 0)
+    if hf_tokens:
+        active_unique3d_idx = active_unique3d_idx % len(hf_tokens)
+    unique3d_status = {
+        "id": "unique3d_hf",
+        "name": "AiuniAI Unique3D",
+        "has_key": len(hf_tokens) > 0,
+        "key_count": len(hf_tokens),
+        "active_index": active_unique3d_idx,
+        "status": "ready",
+        "light": "green",
+        "timer_text": "ZeroGPU Normal Diff",
+        "reset_seconds": 0,
+        "desc": "AiuniAI / Tsinghua Unique3D on ZeroGPU: high-detail mesh generation via multi-level normal diffusion (~25-35s).",
+        "signup_url": "https://huggingface.co/spaces/Wuvin/Unique3D",
+    }
+
     # 3. Modly Local AI (lightningpixel/modly)
     modly_status = {
         "id": "modly_local",
@@ -274,6 +292,7 @@ def get_providers_status() -> dict:
             "hunyuan3d_hf": hunyuan_status,
             "instantmesh_hf": instantmesh_status,
             "sf3d_hf": sf3d_status,
+            "unique3d_hf": unique3d_status,
             "addon_asset_generator": asset_gen_status,
             "addon_sculptmate": sculptmate_status,
             "addon_2d_to_3d": plugin_2d_3d_status,
@@ -285,12 +304,14 @@ def get_providers_status() -> dict:
             "hunyuan3d_hf": hf_token_details,
             "instantmesh_hf": hf_token_details,
             "sf3d_hf": hf_token_details,
+            "unique3d_hf": hf_token_details,
         },
         "active_indices": {
             "trellis_hf": active_hf_idx,
             "hunyuan3d_hf": active_hf_idx,
             "instantmesh_hf": active_hf_idx,
             "sf3d_hf": active_hf_idx,
+            "unique3d_hf": active_unique3d_idx,
         },
         "keys_configured": {
             "hf_token": len(hf_tokens) > 0,
@@ -299,7 +320,7 @@ def get_providers_status() -> dict:
 
 
 def convert_glb_to_formats(glb_path: Path, exports_dir: Path, formats: list[str]) -> list[str]:
-    """Execute headless Blender 5.2 LTS to convert a generated GLB into OBJ, STL, and FBX."""
+    """Execute headless Blender 5.2 LTS to convert a generated GLB or OBJ into GLB, OBJ, STL, and FBX."""
     blender_exe = get_blender_exe()
     if not blender_exe.is_file() or not glb_path.is_file():
         return []
@@ -310,13 +331,58 @@ from pathlib import Path
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 
-glb_path = r"{glb_path}"
+source_path = Path(r"{glb_path}")
 exports_dir = Path(r"{exports_dir}")
+ext = source_path.suffix.lower()
 
-bpy.ops.import_scene.gltf(filepath=glb_path)
+if ext in ('.glb', '.gltf'):
+    bpy.ops.import_scene.gltf(filepath=str(source_path))
+elif ext == '.obj':
+    try:
+        bpy.ops.wm.obj_import(filepath=str(source_path), forward_axis='NEGATIVE_Z', up_axis='Y')
+    except Exception:
+        bpy.ops.import_scene.obj(filepath=str(source_path))
+
+if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+    bpy.ops.object.mode_set(mode='OBJECT')
+
 bpy.ops.object.select_all(action='SELECT')
 
+# Recalculate normals & bind vertex color attributes if present
+for obj in bpy.context.selected_objects:
+    if obj.type == 'MESH' and obj.data:
+        bpy.context.view_layer.objects.active = obj
+        try:
+            bpy.ops.object.mode_set(mode='EDIT')
+            bpy.ops.mesh.normals_make_consistent(inside=False)
+            bpy.ops.mesh.remove_doubles(threshold=0.0001)
+            bpy.ops.object.mode_set(mode='OBJECT')
+        except Exception:
+            pass
+
+        if getattr(obj.data, 'color_attributes', None) and len(obj.data.color_attributes) > 0:
+            color_layer = obj.data.color_attributes.active_color or obj.data.color_attributes[0]
+            mat = obj.active_material
+            if not mat:
+                mat = bpy.data.materials.new(name=f"{{obj.name}}_VertexColorMat")
+                mat.use_nodes = True
+                obj.data.materials.append(mat)
+            if mat and mat.use_nodes:
+                nodes = mat.node_tree.nodes
+                links = mat.node_tree.links
+                bsdf = nodes.get("Principled BSDF")
+                if bsdf:
+                    has_img = any(l.from_node.type == 'TEX_IMAGE' for l in bsdf.inputs['Base Color'].links)
+                    if not has_img:
+                        attr_node = nodes.new('ShaderNodeAttribute')
+                        attr_node.attribute_name = color_layer.name
+                        links.new(attr_node.outputs['Color'], bsdf.inputs['Base Color'])
+
+bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
 formats = {formats}
+if "glb" in formats and ext != ".glb":
+    bpy.ops.export_scene.gltf(filepath=str(exports_dir / "model.glb"), export_format='GLB')
 if "obj" in formats:
     bpy.ops.wm.obj_export(filepath=str(exports_dir / "model.obj"))
 if "stl" in formats:
@@ -347,6 +413,8 @@ print("CONVERT_EXPORT_OK")
         if fpath.is_file():
             created.append(fmt)
     return created
+
+convert_mesh_to_formats = convert_glb_to_formats
 
 
 # ==============================================================================
@@ -858,7 +926,164 @@ def generate_sf3d_hf_asset(
 
 
 # ==============================================================================
-# 5. MODLY LOCAL AI GENERATOR (lightningpixel/modly)
+# 5. AIUNIAI / TSINGHUA UNIQUE3D ZERO-GPU GENERATOR
+# ==============================================================================
+def _execute_unique3d_single(
+    hf_token: str,
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    report: Callable[[str], None],
+    init_type: str = "std",
+    do_refine: bool = False,
+    seed: float = 42.0,
+) -> dict:
+    """Execute AiuniAI / Tsinghua Unique3D via Gradio Client on ZeroGPU."""
+    from gradio_client import Client, handle_file
+    import shutil
+
+    if hf_token:
+        os.environ["HF_TOKEN"] = hf_token
+    elif "HF_TOKEN" in os.environ:
+        del os.environ["HF_TOKEN"]
+
+    report("Connecting to AiuniAI / Tsinghua Unique3D on ZeroGPU cluster...")
+    client = Client(
+        "Wuvin/Unique3D",
+        token=hf_token or None,
+        _skip_components=False,
+        httpx_kwargs={"timeout": 180.0},
+    )
+
+    try:
+        report(f"Synthesizing 3D mesh via Unique3D /generate3dv2 (init_type='{init_type}', do_refine={do_refine})...")
+        res = client.predict(
+            preview_img=handle_file(str(image_path)),
+            input_processing=True,
+            seed=seed,
+            render_video=False,
+            do_refine=do_refine,
+            expansion_weight=0.1,
+            init_type=init_type,
+            api_name="/generate3dv2",
+        )
+
+        mesh_source = None
+        if isinstance(res, (list, tuple)) and len(res) > 0:
+            first_item = res[0]
+            if isinstance(first_item, dict):
+                mesh_source = first_item.get("path") or first_item.get("value")
+            elif isinstance(first_item, str):
+                mesh_source = first_item
+        elif isinstance(res, str):
+            mesh_source = res
+
+        if not mesh_source or not Path(mesh_source).is_file():
+            raise RuntimeError(f"Unique3D returned invalid output structure: {res}")
+
+        source_p = Path(mesh_source)
+        glb_dest = exports_dir / "model.glb"
+        shutil.copy2(source_p, glb_dest)
+        report(f"Unique3D neural model retrieved successfully ({round(glb_dest.stat().st_size / 1024, 1)} KB).")
+
+        # Post-process & convert formats via headless Blender 5.2 LTS
+        if any(f in formats for f in ("obj", "stl", "fbx")):
+            report("Converting Unique3D deliverables to OBJ, STL, and FBX via Blender 5.2 LTS...")
+            convert_mesh_to_formats(glb_dest, exports_dir, formats)
+
+        deliverables = {fmt: exports_dir / f"model.{fmt}" for fmt in formats if (exports_dir / f"model.{fmt}").is_file()}
+        return {"success": True, "deliverables": deliverables}
+
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def generate_unique3d_hf_asset(
+    image_path: Path,
+    exports_dir: Path,
+    formats: list[str],
+    progress_cb: Callable[[dict], None] | None = None,
+    init_type: str = "std",
+    do_refine: bool = False,
+    seed: float = 42.0,
+) -> dict:
+    """Generate 3D model using AiuniAI / Tsinghua Unique3D with token pool rotation and 6-tier auto-cascade."""
+    keys_data = load_keys()
+    pool = keys_data.get("hf_tokens", [])
+
+    def report(msg: str):
+        if progress_cb:
+            progress_cb({"stage": 2, "stage_name": "Unique3D (HF)", "message": msg})
+
+    # Tier 1: Try configured HF tokens with rotation
+    if pool:
+        total_keys = len(pool)
+        start_idx = keys_data.get("active_indices", {}).get("unique3d_hf", 0) % total_keys
+
+        for attempt in range(total_keys):
+            curr_idx = (start_idx + attempt) % total_keys
+            curr_token = pool[curr_idx]
+            masked = (curr_token[:6] + "..." + curr_token[-4:]) if len(curr_token) > 10 else "***"
+            report(f"[Token Rotation] Unique3D Token #{curr_idx + 1}/{total_keys} ({masked})...")
+            try:
+                res = _execute_unique3d_single(curr_token, image_path, exports_dir, formats, report, init_type, do_refine, seed)
+                keys_data.setdefault("active_indices", {})["unique3d_hf"] = curr_idx
+                save_keys(keys_data)
+                report(f"Unique3D asset synthesized successfully using Token #{curr_idx + 1}!")
+                return res
+            except Exception as exc:
+                err_msg = str(exc)
+                next_idx = (curr_idx + 1) % total_keys
+                keys_data.setdefault("active_indices", {})["unique3d_hf"] = next_idx
+                save_keys(keys_data)
+                report(f"[Notice] Unique3D Token #{curr_idx + 1} quota limit: {err_msg[:80]}...")
+
+    # Tier 2: Try public anonymous pool
+    try:
+        report("Trying Unique3D public community pool...")
+        return _execute_unique3d_single("", image_path, exports_dir, formats, report, init_type, do_refine, seed)
+    except Exception as exc:
+        report(f"Notice: Unique3D ZeroGPU busy or quota exhausted ({str(exc)[:80]}...). Auto-Cascading...")
+
+    # 6-Tier Cascade Fallback:
+    # Tier 2: Stability AI SF3D (ultra-fast, requests only 30s ZeroGPU quota)
+    try:
+        report("Cascade Tier 2: Routing to Stability AI Stable Fast 3D (SF3D)...")
+        return generate_sf3d_hf_asset(image_path, exports_dir, formats, progress_cb)
+    except Exception as sf3d_err:
+        report(f"Notice: SF3D busy ({str(sf3d_err)[:70]}). Cascading to Tier 3: Tencent Hunyuan3D-2...")
+
+    # Tier 3: Tencent Hunyuan3D-2
+    try:
+        report("Cascade Tier 3: Routing to Tencent Hunyuan3D-2...")
+        return generate_hunyuan3d_hf_asset(image_path, exports_dir, formats, progress_cb)
+    except Exception as hunyuan_err:
+        report(f"Notice: Hunyuan3D-2 busy ({str(hunyuan_err)[:70]}). Cascading to Tier 4: TencentARC InstantMesh...")
+
+    # Tier 4: TencentARC InstantMesh
+    try:
+        report("Cascade Tier 4: Routing to TencentARC InstantMesh...")
+        return generate_instantmesh_hf_asset(image_path, exports_dir, formats, progress_cb)
+    except Exception as instant_err:
+        report(f"Notice: InstantMesh busy ({str(instant_err)[:70]}). Cascading to Tier 5: Microsoft TRELLIS...")
+
+    # Tier 5: Microsoft TRELLIS
+    try:
+        report("Cascade Tier 5: Routing to Microsoft TRELLIS...")
+        return generate_trellis_hf_asset(image_path, exports_dir, formats, progress_cb)
+    except Exception as trellis_err:
+        report(f"Notice: Cloud ZeroGPU clusters busy ({str(trellis_err)[:70]}). Cascading to Tier 6: Local Teddy Watertight Manifold...")
+
+    # Tier 6: Local Deterministic Watertight Manifold (100% reliable CPU execution)
+    report("Cascade Tier 6: Synthesizing deterministic watertight Teddy manifold...")
+    return generate_triposr_local_asset(image_path, exports_dir, formats, progress_cb)
+
+
+# ==============================================================================
+# 6. MODLY LOCAL AI GENERATOR (lightningpixel/modly)
 # ==============================================================================
 def generate_modly_asset(
     image_path: Path,

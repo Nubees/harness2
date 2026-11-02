@@ -1124,7 +1124,7 @@ FINAL REQUIREMENTS (CRITICAL):
 
         # Stage 1 & 2: Route by Mesh Architecture Preset / Provider Engine
         actual_provider = quality_preset
-        if quality_preset in ("trellis_hf", "hunyuan3d_hf", "instantmesh_hf", "sf3d_hf", "modly_local", "triposr_local", "addon_asset_generator", "addon_sculptmate", "addon_2d_to_3d"):
+        if quality_preset in ("trellis_hf", "hunyuan3d_hf", "instantmesh_hf", "sf3d_hf", "unique3d_hf", "modly_local", "triposr_local", "addon_asset_generator", "addon_sculptmate", "addon_2d_to_3d"):
             import providers
             report(1, "Perception", f"Dispatching image ({image_path.name}) to {quality_preset.upper()} engine...")
             script_file = job_dir / f"{quality_preset}_job.json"
@@ -1144,6 +1144,9 @@ FINAL REQUIREMENTS (CRITICAL):
                 elif quality_preset == "sf3d_hf":
                     providers.generate_sf3d_hf_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
                     actual_provider = "Stability AI Stable Fast 3D (Hugging Face ZeroGPU)"
+                elif quality_preset == "unique3d_hf":
+                    providers.generate_unique3d_hf_asset(image_path, exports_dir, formats, progress_cb=progress_cb)
+                    actual_provider = "AiuniAI Unique3D (Hugging Face ZeroGPU)"
                 elif quality_preset == "addon_asset_generator":
                     providers.generate_addon_asset("addon_asset_generator", image_path, exports_dir, formats, progress_cb=progress_cb)
                     actual_provider = "Asset Generator 2D-3D (Blender 5.2 Add-on)"
@@ -1274,7 +1277,12 @@ FINAL REQUIREMENTS (CRITICAL):
                 report(2, "Synthesis", "Procedural code synthesis complete.")
 
         # Stage 3: Headless Blender Compilation (only for procedural/script presets)
-        if quality_preset not in ("tripo3d", "meshy", "trellis_hf", "modly_local", "triposr_local"):
+        provider_preset_ids = (
+            "tripo3d", "meshy", "trellis_hf", "hunyuan3d_hf", "instantmesh_hf",
+            "sf3d_hf", "unique3d_hf", "modly_local", "triposr_local",
+            "addon_asset_generator", "addon_sculptmate", "addon_2d_to_3d"
+        )
+        if quality_preset not in provider_preset_ids:
             report(3, "Blender Compile", "Executing script headlessly in Blender 5.2 LTS...")
             build_result = self.execute_blender_script(script_file)
             (job_dir / "blender_build.log").write_text(build_result["output"], encoding="utf-8")

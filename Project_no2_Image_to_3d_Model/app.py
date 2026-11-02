@@ -288,13 +288,15 @@ class StudioHTTPHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/generate":
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length).decode("utf-8"))
-            print(f"[DEBUG app.py] Received /api/generate request with quality_preset: {body.get('quality_preset')}")
+            quality_preset = body.get("quality_preset") or body.get("preset") or "sota_sculpt"
+            image_ref = body.get("image") or body.get("image_url") or "spaceman.png"
+            if image_ref.startswith("/files/"):
+                image_ref = image_ref[7:]
+            print(f"[DEBUG app.py] Received /api/generate request with quality_preset: {quality_preset}, image: {image_ref}")
 
-            image_ref = body.get("image", "spaceman.png")
             model = body.get("model", "glm-5.3-flash:cloud")
             prompt = body.get("prompt", "")
             formats = body.get("formats", ["glb", "obj", "stl", "fbx"])
-            quality_preset = body.get("quality_preset", "sota_sculpt")
 
             # Resolve image file
             img_path = PROJECT_DIR / image_ref
